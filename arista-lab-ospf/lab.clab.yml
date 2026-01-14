@@ -1,0 +1,47 @@
+name: arista-lab-ospf
+topology:
+  nodes:
+    node1:
+      kind: ceos
+      image: ceosimage:4.34.2.1f
+      startup-config: configs/node1.cfg
+    node2:
+      kind: ceos
+      image: ceosimage:4.34.2.1f
+      startup-config: configs/node2.cfg
+    node3:
+      kind: ceos
+      image: ceosimage:4.34.2.1f
+      startup-config: configs/node3.cfg
+    node4:
+      kind: ceos
+      image: ceosimage:4.34.2.1f
+      startup-config: configs/node4.cfg
+    node5:
+      kind: ceos
+      image: ceosimage:4.34.2.1f
+      startup-config: configs/node5.cfg
+    node6:
+      kind: ceos
+      image: ceosimage:4.34.2.1f
+      startup-config: configs/node6.cfg
+    edge1:
+      kind: linux
+      image: alpine:3.19
+      exec:
+        - ip link set eth1 up
+        - ip addr add 172.16.0.1/24 dev eth1
+    edge2:
+      kind: linux
+      image: alpine:3.19
+      exec:
+        - ip link set eth1 up
+        - ip addr add 172.16.0.2/24 dev eth1
+  links:
+    - endpoints: [node1:eth1, node2:eth1]
+    - endpoints: [node1:eth2, node3:eth1]
+    - endpoints: [node1:eth3, node4:eth1]
+    - endpoints: [node4:eth2, node5:eth1]
+    - endpoints: [node5:eth2, node6:eth1]
+    - endpoints: [edge1:eth1, node2:eth2]
+    - endpoints: [edge2:eth1, node6:eth2]

@@ -9,7 +9,7 @@ GO_TGZ="go${GO_VERSION}.linux-arm64.tar.gz"
 ### ───────────────────────────
 ### EDIT THESE FOR YOUR SETUP
 ### ───────────────────────────
-VM_NAME="clab-evpn"
+VM_NAME="lab-builder"
 UBUNTU_RELEASE="jammy"          # or "22.04"
 CPUS="6"
 MEM="12G"
@@ -25,7 +25,7 @@ CEOS_TARBALL="$REPO_DIR/cEOSarm-lab-4.34.2.1F.tar.xz"
 CEOS_TAG="ceosimage:4.34.2.1f"
 
 # Set to 1 to auto-deploy the lab at the end, 0 to skip
-AUTO_DEPLOY=1
+AUTO_DEPLOY="${AUTO_DEPLOY:-0}"
 LAB_FILE="lab.clab.yml"         # path inside your REPO_DIR
 
 ### ───────────────────────────

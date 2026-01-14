@@ -1,0 +1,53 @@
+{{ define "viewer_title" }}Lab Viewer{{ end }}
+
+{{ define "viewer_content" }}
+<header class="hero">
+  <div>
+    <p class="eyebrow">Arista Lab</p>
+    <h1>Lab Viewer</h1>
+    <p class="subhead">Inspect deployed topology, edge nodes, and configured protocols.</p>
+    <nav class="page-nav">
+      <a href="/">Build</a>
+      <a href="/viewer" class="active">Lab Viewer</a>
+      <a href="/lab">Health</a>
+    </nav>
+  </div>
+  <div class="status-card">
+    <div class="status-line">
+      <span id="viewerStatus" class="status status-idle">Select a lab</span>
+    </div>
+    <div class="status-meta">
+      <div>Base dir</div>
+      <code id="baseDir">{{ .BaseDir }}</code>
+    </div>
+  </div>
+</header>
+
+<section class="panel">
+  <h2>Lab selection</h2>
+  <div class="form-grid">
+    <label>
+      Available labs
+      <select id="viewerLabSelect">
+        <option value="">Loading...</option>
+      </select>
+    </label>
+  </div>
+</section>
+
+<section class="grid">
+  <div class="panel graph-panel">
+    <div class="graph-header">
+      <h2>Topology</h2>
+      <button id="viewerRefresh" class="ghost" type="button">Refresh</button>
+    </div>
+    <div class="graph-wrap">
+      <svg id="viewerGraph" viewBox="0 0 1000 520" role="img" aria-label="Lab topology"></svg>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Protocols</h2>
+    <div id="viewerProtocols" class="protocol-summary"></div>
+  </div>
+</section>
+{{ end }}

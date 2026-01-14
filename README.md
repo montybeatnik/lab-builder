@@ -37,6 +37,60 @@ You'll need to do the following:
     ./vmsetup.sh
     ```
 
+### Multipass (recommended)
+Use the Makefile to stand up the Multipass VM (named `lab-builder`), install Docker + Containerlab, and mount the repo into the VM.
+```bash
+make vm_setup
+```
+
+Build the Go server and install the systemd user service:
+```bash
+make vm_server_build
+make vm_server_install
+```
+
+Start the Go UI server inside the VM (systemd user service):
+```bash
+make vm_server_start
+make vm_server_status_service
+```
+
+If you need to stop it:
+```bash
+make vm_server_stop_service
+```
+
+If the VM gets into a bad state or multipass hangs, rebuild the VM:
+```bash
+multipass stop lab-builder
+multipass delete --purge lab-builder
+make vm_setup
+make vm_server_build
+make vm_server_install
+make vm_server_start
+```
+
+If you only need to rebuild the Go server after code changes:
+```bash
+make vm_rebuild
+```
+
+Start the Go UI server inside the VM (foreground, manual run):
+```bash
+make vm_server
+```
+
+Or run it in the background and tail logs:
+```bash
+make vm_server_bg
+make vm_server_logs
+```
+
+Expose the UI port and print the VM URL:
+```bash
+make vm_ui
+```
+
 ### The Harder Way
 1. Create new VM with image in VirtualBox 
    1. Open VirtualBox and click on "New".

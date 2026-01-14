@@ -1,0 +1,9 @@
+FROM golang:1.23-alpine AS build
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/traffic-server ./cmd/traffic-server
+
+FROM alpine:3.19
+COPY --from=build /out/traffic-server /traffic/traffic-server
+EXPOSE 8081 5004
+ENTRYPOINT ["/traffic/traffic-server"]

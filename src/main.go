@@ -63,8 +63,15 @@ func (c serverCfg) sanitizeLabPath(p string) (string, error) {
 		return "", errors.New("lab file must be under basedir")
 	}
 	info, err := os.Stat(abs)
-	if err != nil || info.IsDir() {
+	if err != nil {
 		return "", errors.New("lab file not found")
+	}
+	if info.IsDir() {
+		abs = filepath.Join(abs, "lab.clab.yml")
+		info, err = os.Stat(abs)
+		if err != nil || info.IsDir() {
+			return "", errors.New("lab file not found")
+		}
 	}
 	return abs, nil
 }
@@ -73,6 +80,7 @@ func (c serverCfg) sanitizeLabPath(p string) (string, error) {
 
 type pageData struct {
 	BaseDir string
+	Page    string
 }
 
 //go:embed web/templates/*.tmpl
@@ -87,14 +95,52 @@ func makeTemplate() *template.Template {
 		tplFS,
 		"web/templates/layout.tmpl",
 		"web/templates/index.tmpl",
+		"web/templates/lab.tmpl",
+		"web/templates/viewer.tmpl",
 	))
 }
 
 func indexHandler(cfg serverCfg, t *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var buf bytes.Buffer
-		if err := t.ExecuteTemplate(&buf, "layout", pageData{BaseDir: cfg.BaseDir}); err != nil {
+		data := pageData{
+			BaseDir: cfg.BaseDir,
+			Page:    "index",
+		}
+		if err := t.ExecuteTemplate(&buf, "layout", data); err != nil {
 			// nothing has been written to the client yet → safe to send an error
+			http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = buf.WriteTo(w)
+	}
+}
+
+func labHandler(cfg serverCfg, t *template.Template) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var buf bytes.Buffer
+		data := pageData{
+			BaseDir: cfg.BaseDir,
+			Page:    "health",
+		}
+		if err := t.ExecuteTemplate(&buf, "layout", data); err != nil {
+			http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = buf.WriteTo(w)
+	}
+}
+
+func viewerHandler(cfg serverCfg, t *template.Template) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var buf bytes.Buffer
+		data := pageData{
+			BaseDir: cfg.BaseDir,
+			Page:    "viewer",
+		}
+		if err := t.ExecuteTemplate(&buf, "layout", data); err != nil {
 			http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -197,7 +243,7 @@ func runCmdHandler(cfg serverCfg) http.HandlerFunc {
 		client := arista.NewEosClient(url)
 		tmplPath := "templates/eapi_payload.tmpl"
 		fmt.Println("rendering template...")
-		body, err := renderer.RenderTemplate(tmplPath, arista.PayloadData{
+		body, err := renderer.RenderTemplate(tmplPath, renderer.PayloadData{
 			Method:  "runCmds",
 			Version: 1,
 			Format:  "json",
@@ -208,7 +254,8 @@ func runCmdHandler(cfg serverCfg) http.HandlerFunc {
 			os.Exit(1)
 		}
 		fmt.Println("running cmd...")
-		client.Run(body)
+		var resp map[string]any
+		_ = client.Run(body, &resp)
 	}
 }
 
@@ -394,27 +441,46 @@ func healthHandler(cfg serverCfg) http.HandlerFunc {
 				}
 
 				// Parse minimal fields from body
+				type rpcErr struct {
+					Message string `json:"message"`
+					Code    int    `json:"code"`
+				}
 				type rpc struct {
-					Result []map[string]any `json:"result"`
+					Result []any   `json:"result"`
+					Error  *rpcErr `json:"error"`
 				}
 				var rp rpc
-				if json.Unmarshal(body, &rp) != nil || len(rp.Result) < 3 {
-					h.Checks = append(h.Checks, HealthCheck{Name: "parse", Result: "WARN", Detail: "unexpected eAPI response"})
+				if err := json.Unmarshal(body, &rp); err != nil {
+					h.Checks = append(h.Checks, HealthCheck{Name: "parse", Result: "WARN", Detail: "bad JSON from eAPI"})
+					ch <- item{i: i, nh: h}
+					return
+				}
+				if rp.Error != nil {
+					h.Checks = append(h.Checks, HealthCheck{Name: "eAPI error", Result: "FAIL", Detail: rp.Error.Message})
+					ch <- item{i: i, nh: h}
+					return
+				}
+				if len(rp.Result) == 0 {
+					h.Checks = append(h.Checks, HealthCheck{Name: "parse", Result: "WARN", Detail: "empty eAPI result"})
 					ch <- item{i: i, nh: h}
 					return
 				}
 
 				// 1) EVPN neighbors established?
 				pass1 := false
-				if vrfs, ok := rp.Result[0]["vrfs"].(map[string]any); ok {
-					for _, v := range vrfs {
-						if m, ok := v.(map[string]any); ok {
-							if peers, ok := m["peers"].(map[string]any); ok {
-								for _, p := range peers {
-									if pm, ok := p.(map[string]any); ok {
-										if st, _ := pm["peerState"].(string); st == "Established" {
-											pass1 = true
-											break
+				if len(rp.Result) >= 1 {
+					if r0, ok := rp.Result[0].(map[string]any); ok {
+						if vrfs, ok := r0["vrfs"].(map[string]any); ok {
+							for _, v := range vrfs {
+								if m, ok := v.(map[string]any); ok {
+									if peers, ok := m["peers"].(map[string]any); ok {
+										for _, p := range peers {
+											if pm, ok := p.(map[string]any); ok {
+												if st, _ := pm["peerState"].(string); st == "Established" {
+													pass1 = true
+													break
+												}
+											}
 										}
 									}
 								}
@@ -430,8 +496,12 @@ func healthHandler(cfg serverCfg) http.HandlerFunc {
 
 				// 2) VTEPs learnt?
 				pass2 := false
-				if m, ok := rp.Result[1]["vteps"].([]any); ok && len(m) > 0 {
-					pass2 = true
+				if len(rp.Result) >= 2 {
+					if r1, ok := rp.Result[1].(map[string]any); ok {
+						if m, ok := r1["vteps"].([]any); ok && len(m) > 0 {
+							pass2 = true
+						}
+					}
 				}
 				h.Checks = append(h.Checks, HealthCheck{
 					Name:   "VXLAN VTEPs",
@@ -441,8 +511,12 @@ func healthHandler(cfg serverCfg) http.HandlerFunc {
 
 				// 3) Any MAC/IP routes?
 				pass3 := false
-				if routes, ok := rp.Result[2]["routes"].([]any); ok && len(routes) > 0 {
-					pass3 = true
+				if len(rp.Result) >= 3 {
+					if r2, ok := rp.Result[2].(map[string]any); ok {
+						if routes, ok := r2["routes"].([]any); ok && len(routes) > 0 {
+							pass3 = true
+						}
+					}
 				}
 				h.Checks = append(h.Checks, HealthCheck{
 					Name:   "EVPN MAC/IP",
@@ -479,9 +553,16 @@ func main() {
 
 	// Pages & API
 	mux.HandleFunc("/", indexHandler(cfg, t))
+	mux.HandleFunc("/lab", labHandler(cfg, t))
+	mux.HandleFunc("/viewer", viewerHandler(cfg, t))
+	mux.HandleFunc("/labs", labsHandler(cfg))
+	mux.HandleFunc("/labplan", labPlanHandler(cfg))
 	mux.HandleFunc("/inspect", inspectHandler(cfg))
 	mux.HandleFunc("/runcmd", runCmdHandler(cfg))
 	mux.HandleFunc("/health", healthHandler(cfg))
+	mux.HandleFunc("/topology/validate", topologyHandler)
+	mux.HandleFunc("/topology/build", topologyBuildHandler(cfg))
+	mux.HandleFunc("/topology/deploy", topologyDeployHandler(cfg))
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,

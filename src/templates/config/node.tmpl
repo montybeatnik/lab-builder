@@ -1,0 +1,96 @@
+hostname {{ .Hostname }}
+username admin privilege 15 role network-admin secret 0 admin
+enable secret 0 admin
+aaa authorization exec default local
+ip routing
+management api http-commands
+  no shutdown
+  protocol https
+  vrf MGMT
+
+{{- if .Loopback }}
+interface Loopback0
+  ip address {{ .Loopback }}/32
+{{- end }}
+
+{{- range .Interfaces }}
+interface {{ .Name }}
+{{- if .Desc }}
+  description {{ .Desc }}
+{{- end }}
+  no shutdown
+{{- if .L2 }}
+  switchport
+  switchport access vlan {{ .Vlan }}
+  spanning-tree portfast
+{{- else }}
+  no switchport
+  ip address {{ .IP }}/31
+{{- end }}
+
+{{- end }}
+{{- if .BGP.Enabled }}
+router bgp {{ .BGP.ASN }}
+  router-id {{ .BGP.RouterID }}
+{{- range .BGP.Neighbors }}
+  neighbor {{ .IP }} remote-as {{ .ASN }}
+  neighbor {{ .IP }} description {{ .Description }}
+{{- end }}
+  address-family ipv4
+{{- range .BGP.Neighbors }}
+    neighbor {{ .IP }} activate
+{{- end }}
+{{- if .Loopback }}
+    network {{ .Loopback }}/32
+{{- end }}
+{{- if .BGP.EVPN }}
+  address-family evpn
+{{- range .BGP.Neighbors }}
+    neighbor {{ .IP }} activate
+    neighbor {{ .IP }} send-community extended
+{{- end }}
+{{- end }}
+{{- if and .BGP.EVPN .VlanID }}
+  vlan {{ .VlanID }}
+    rd auto
+    route-target both auto
+    redistribute learned
+{{- end }}
+
+{{- end }}
+{{- if .Protocols }}
+! protocols: {{ .Protocols }}
+{{- end }}
+{{- if .VXLAN }}
+vlan {{ .VlanID }}
+  name EDGE-VLAN
+interface Vlan{{ .VlanID }}
+  no shutdown
+  no autostate
+  ip address {{ .EdgeIP }}/{{ .EdgePrefix }}
+interface Vxlan1
+  vxlan source-interface Loopback0
+  vxlan udp-port 4789
+  vxlan vlan {{ .VlanID }} vni {{ .Vni }}
+
+{{- end }}
+{{- if .OSPF }}
+router ospf 1
+  router-id {{ .OSPF }}
+
+{{- end }}
+{{- if .ISIS }}
+router isis 1
+  net {{ .ISIS }}
+
+{{- end }}
+{{- if .MPLS.LDP }}
+mpls ip
+mpls ldp
+
+{{- end }}
+{{- if .MPLS.RSVP }}
+mpls ip
+mpls rsvp
+
+{{- end }}
