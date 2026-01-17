@@ -94,3 +94,11 @@ mpls ip
 mpls rsvp
 
 {{- end }}
+{{- if .SNMP }}
+snmp-server community {{ .SNMPCommunity }} ro
+{{- end }}
+{{- if .GNMI }}
+management api gnmi
+  transport grpc default
+  no shutdown
+{{- end }}

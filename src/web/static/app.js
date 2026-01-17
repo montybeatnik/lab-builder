@@ -238,7 +238,8 @@
       customLinks: collectCustomLinks(),
       traffic: collectTraffic(),
       protocols: collectProtocols(),
-      edgeLinks: collectEdgeLinks()
+      edgeLinks: collectEdgeLinks(),
+      monitoring: collectMonitoring()
     };
     const status = $('buildStatus');
     status.textContent = 'Validating...';
@@ -276,6 +277,7 @@
       traffic: collectTraffic(),
       protocols: collectProtocols(),
       edgeLinks: collectEdgeLinks(),
+      monitoring: collectMonitoring(),
       labName: $('labName').value.trim(),
       force: $('forceBuild').value === 'true'
     };
@@ -375,6 +377,13 @@
       }
     });
     return links;
+  }
+
+  function collectMonitoring() {
+    return {
+      snmp: $('monSnmp') ? $('monSnmp').checked : false,
+      gnmi: $('monGnmi') ? $('monGnmi').checked : false
+    };
   }
 
   function renderChecks(data) {

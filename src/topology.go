@@ -34,6 +34,7 @@ type TopologyRequest struct {
 	Force       bool        `json:"force"`
 	UseSudo     bool        `json:"sudo"`
 	Protocols   labplanner.ProtocolSet `json:"protocols"`
+	Monitoring  MonitoringConfig       `json:"monitoring"`
 }
 
 type LinkInput struct {
@@ -49,6 +50,11 @@ type EdgeLinkInput struct {
 type Traffic struct {
 	Profile string `json:"profile"`
 	Level   int    `json:"level"`
+}
+
+type MonitoringConfig struct {
+	SNMP bool `json:"snmp"`
+	GNMI bool `json:"gnmi"`
 }
 
 type Check struct {
@@ -183,7 +189,7 @@ func topologyBuildHandler(cfg serverCfg) http.HandlerFunc {
 			return
 		}
 
-		files, err := writeLabFiles(root, labName, model, plan)
+		files, err := writeLabFiles(root, labName, model, plan, req.Monitoring)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, BuildResponse{OK: false, Error: err.Error()})
 			return
@@ -247,9 +253,9 @@ func topologyDeployHandler(cfg serverCfg) http.HandlerFunc {
 	}
 }
 
-func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan labplanner.LabPlan) ([]string, error) {
+func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan labplanner.LabPlan, monitoring MonitoringConfig) ([]string, error) {
 	var files []string
-	yamlBody := configgenerator.RenderContainerlabYAML(labName, model, plan.Links, plan.EdgeHosts)
+	yamlBody := configgenerator.RenderContainerlabYAML(labName, model, plan.Links, plan.EdgeHosts, monitoring.SNMP || monitoring.GNMI)
 	yamlPath := filepath.Join(root, "lab.clab.yml")
 	if err := os.WriteFile(yamlPath, []byte(yamlBody), 0o644); err != nil {
 		return files, err
@@ -276,7 +282,7 @@ func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan la
 			continue
 		}
 		path := filepath.Join(cfgDir, node.Name+".cfg")
-		body, err := configgenerator.RenderNodeConfig("templates/config/node.tmpl", node, nodeLinks[node.Name], nodeMap)
+		body, err := configgenerator.RenderNodeConfig("templates/config/node.tmpl", node, nodeLinks[node.Name], nodeMap, monitoring.SNMP, monitoring.GNMI)
 		if err != nil {
 			return files, err
 		}
@@ -325,6 +331,44 @@ func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan la
 		return files, err
 	}
 	files = append(files, readme)
+
+	if monitoring.SNMP || monitoring.GNMI {
+		monDir := filepath.Join(root, "monitoring")
+		if err := os.MkdirAll(monDir, 0o755); err != nil {
+			return files, err
+		}
+		promCfg := configgenerator.PrometheusConfig(labName, monitoring.SNMP, monitoring.GNMI)
+		promPath := filepath.Join(monDir, "prometheus.yml")
+		if err := os.WriteFile(promPath, []byte(promCfg), 0o644); err != nil {
+			return files, err
+		}
+		files = append(files, promPath)
+
+		if monitoring.SNMP {
+			snmpCfg := configgenerator.SNMPConfig()
+			snmpPath := filepath.Join(monDir, "snmp.yml")
+			if err := os.WriteFile(snmpPath, []byte(snmpCfg), 0o644); err != nil {
+				return files, err
+			}
+			files = append(files, snmpPath)
+		}
+
+		grafanaCfg := configgenerator.GrafanaDatasource()
+		grafanaPath := filepath.Join(monDir, "grafana-datasources.yml")
+		if err := os.WriteFile(grafanaPath, []byte(grafanaCfg), 0o644); err != nil {
+			return files, err
+		}
+		files = append(files, grafanaPath)
+
+		if monitoring.GNMI {
+			gnmiCfg := configgenerator.GNMIConfig(labName)
+			gnmiPath := filepath.Join(monDir, "gnmic.yml")
+			if err := os.WriteFile(gnmiPath, []byte(gnmiCfg), 0o644); err != nil {
+				return files, err
+			}
+			files = append(files, gnmiPath)
+		}
+	}
 
 	return files, nil
 }

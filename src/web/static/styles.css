@@ -453,6 +453,27 @@ pre {
   gap: 0.5rem;
 }
 
+.monitoring-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 1rem;
+}
+
+.monitoring-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.8rem;
+  padding: 0.8rem;
+  border-radius: 1rem;
+  border: 1px solid var(--stroke);
+  background: #fdfbf8;
+}
+
+.monitoring-card input[type="checkbox"] {
+  transform: scale(1.1);
+}
+
 @media (max-width: 900px) {
   .hero { flex-direction: column; }
   .status-card { width: 100%; }

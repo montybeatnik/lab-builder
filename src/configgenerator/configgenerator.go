@@ -51,12 +51,18 @@ type NodeTemplateData struct {
 	EdgeIP    string
 	EdgePrefix int
 	MPLS      MPLSData
+	SNMP      bool
+	GNMI      bool
+	SNMPCommunity string
 }
 
-func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplanner.LinkAssigned, nodeMap map[string]labplanner.NodePlan) (string, error) {
+func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplanner.LinkAssigned, nodeMap map[string]labplanner.NodePlan, snmpEnabled, gnmiEnabled bool) (string, error) {
 	data := NodeTemplateData{
 		Hostname: node.Name,
 		Loopback: node.Loopback,
+		SNMP:     snmpEnabled,
+		GNMI:     gnmiEnabled,
+		SNMPCommunity: "public",
 	}
 
 	for _, link := range links {
@@ -160,7 +166,7 @@ func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplann
 	return buf.String(), nil
 }
 
-func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, links []labplanner.LinkAssigned, edgeHosts []labplanner.EdgeHost) string {
+func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, links []labplanner.LinkAssigned, edgeHosts []labplanner.EdgeHost, monitoring bool) string {
 	var b strings.Builder
 	b.WriteString("name: " + labName + "\n")
 	b.WriteString("topology:\n")
@@ -184,6 +190,29 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, link
 			b.WriteString("        - ip link set " + host.IfName + " up\n")
 			b.WriteString("        - ip addr add " + host.IP + "/" + strconv.Itoa(host.Prefix) + " dev " + host.IfName + "\n")
 		}
+	}
+	if monitoring {
+		b.WriteString("    prometheus:\n")
+		b.WriteString("      kind: linux\n")
+		b.WriteString("      image: prom/prometheus:v2.52.0\n")
+		b.WriteString("      binds:\n")
+		b.WriteString("        - monitoring/prometheus.yml:/etc/prometheus/prometheus.yml\n")
+		b.WriteString("    grafana:\n")
+		b.WriteString("      kind: linux\n")
+		b.WriteString("      image: grafana/grafana:10.4.2\n")
+		b.WriteString("      binds:\n")
+		b.WriteString("        - monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml\n")
+		b.WriteString("    snmp-exporter:\n")
+		b.WriteString("      kind: linux\n")
+		b.WriteString("      image: prom/snmp-exporter:v0.26.0\n")
+		b.WriteString("      binds:\n")
+		b.WriteString("        - monitoring/snmp.yml:/etc/snmp_exporter/snmp.yml\n")
+		b.WriteString("    gnmic:\n")
+		b.WriteString("      kind: linux\n")
+		b.WriteString("      image: ghcr.io/openconfig/gnmic:0.38.0\n")
+		b.WriteString("      binds:\n")
+		b.WriteString("        - monitoring/gnmic.yml:/gnmic/gnmic.yml\n")
+		b.WriteString("      cmd: --config /gnmic/gnmic.yml\n")
 	}
 	b.WriteString("  links:\n")
 	for _, link := range links {
@@ -223,4 +252,78 @@ func protocolNet(protocols []string, target, fallback string) string {
 		return ""
 	}
 	return fallback
+}
+
+func PrometheusConfig(labName string, snmpEnabled, gnmiEnabled bool) string {
+	var b strings.Builder
+	b.WriteString("global:\n  scrape_interval: 15s\n")
+	b.WriteString("scrape_configs:\n")
+	if snmpEnabled {
+		b.WriteString("  - job_name: \"snmp\"\n")
+		b.WriteString("    metrics_path: /snmp\n")
+		b.WriteString("    params:\n")
+		b.WriteString("      module: [\"eos\"]\n")
+		b.WriteString("    static_configs:\n")
+		b.WriteString("      - targets:\n")
+		b.WriteString("          - " + labName + "-leaf1\n")
+		b.WriteString("    relabel_configs:\n")
+		b.WriteString("      - source_labels: [__address__]\n")
+		b.WriteString("        target_label: __param_target\n")
+		b.WriteString("      - source_labels: [__param_target]\n")
+		b.WriteString("        target_label: instance\n")
+		b.WriteString("      - target_label: __address__\n")
+		b.WriteString("        replacement: snmp-exporter:9116\n")
+	}
+	if gnmiEnabled {
+		b.WriteString("  - job_name: \"gnmi\"\n")
+		b.WriteString("    static_configs:\n")
+		b.WriteString("      - targets:\n")
+		b.WriteString("          - gnmic:9804\n")
+	}
+	return b.String()
+}
+
+func SNMPConfig() string {
+	return `
+modules:
+  eos:
+    version: 2c
+    auth:
+      community: public
+    walk:
+      - 1.3.6.1.2.1.2
+      - 1.3.6.1.2.1.31
+`
+}
+
+func GrafanaDatasource() string {
+	return `
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+`
+}
+
+func GNMIConfig(labName string) string {
+	return `
+targets:
+  leaf1:
+    address: ` + labName + `-leaf1:6030
+    username: admin
+    password: admin
+    insecure: true
+subscriptions:
+  interfaces:
+    path: /interfaces/interface/state/counters
+    stream-mode: sample
+    sample-interval: 10s
+outputs:
+  prometheus:
+    type: prometheus
+    listen: 0.0.0.0:9804
+`
 }

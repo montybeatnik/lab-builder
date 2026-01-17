@@ -147,6 +147,27 @@
 </section>
 
 <section class="panel">
+  <h2>Monitoring</h2>
+  <p class="muted">Deploy Prometheus/Grafana plus SNMP and gNMI collectors inside the lab.</p>
+  <div class="monitoring-grid">
+    <label class="monitoring-card">
+      <input type="checkbox" id="monSnmp" checked>
+      <div>
+        <strong>SNMP</strong>
+        <p>Enable SNMP on EOS and scrape via snmp_exporter.</p>
+      </div>
+    </label>
+    <label class="monitoring-card">
+      <input type="checkbox" id="monGnmi" checked>
+      <div>
+        <strong>gNMI</strong>
+        <p>Enable gNMI and collect metrics with gNMIc.</p>
+      </div>
+    </label>
+  </div>
+</section>
+
+<section class="panel">
   <h2>Edge attachments</h2>
   <p class="muted">Choose where each edge node connects. Leave as auto to use round-robin.</p>
   <div id="edgeAttachments" class="edge-attachments"></div>
