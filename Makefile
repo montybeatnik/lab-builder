@@ -8,6 +8,9 @@ VM_LAB_DIR ?= /home/ubuntu/lab
 vm_setup:
 	AUTO_DEPLOY=0 ./setup-multipass.sh
 
+vm_deploy:
+	multipass exec $(VM_NAME) -- bash -lc 'set -euo pipefail; cd $(VM_LAB_DIR)/arista-lab; arch=$$(uname -m); if [[ "$$arch" == "arm64" || "$$arch" == "aarch64" ]]; then sudo docker pull --platform=linux/arm64 ghcr.io/openconfig/gnmic:latest; else sudo docker pull ghcr.io/openconfig/gnmic:latest; fi; export CLAB_LABDIR_BASE=$$HOME/.clab-runs; sudo -E containerlab deploy -t lab.clab.yml --reconfigure'
+
 vm_shell:
 	multipass shell $(VM_NAME)
 

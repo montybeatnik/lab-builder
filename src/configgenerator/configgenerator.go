@@ -195,11 +195,15 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, link
 		b.WriteString("    prometheus:\n")
 		b.WriteString("      kind: linux\n")
 		b.WriteString("      image: prom/prometheus:v2.52.0\n")
+		b.WriteString("      ports:\n")
+		b.WriteString("        - 9090:9090\n")
 		b.WriteString("      binds:\n")
 		b.WriteString("        - monitoring/prometheus.yml:/etc/prometheus/prometheus.yml\n")
 		b.WriteString("    grafana:\n")
 		b.WriteString("      kind: linux\n")
 		b.WriteString("      image: grafana/grafana:10.4.2\n")
+		b.WriteString("      ports:\n")
+		b.WriteString("        - 3000:3000\n")
 		b.WriteString("      binds:\n")
 		b.WriteString("        - monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml\n")
 		b.WriteString("    snmp-exporter:\n")
@@ -209,10 +213,10 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, link
 		b.WriteString("        - monitoring/snmp.yml:/etc/snmp_exporter/snmp.yml\n")
 		b.WriteString("    gnmic:\n")
 		b.WriteString("      kind: linux\n")
-		b.WriteString("      image: ghcr.io/openconfig/gnmic:0.38.0\n")
+		b.WriteString("      image: ghcr.io/openconfig/gnmic:latest\n")
 		b.WriteString("      binds:\n")
 		b.WriteString("        - monitoring/gnmic.yml:/gnmic/gnmic.yml\n")
-		b.WriteString("      cmd: --config /gnmic/gnmic.yml\n")
+		b.WriteString("      cmd: subscribe --config /gnmic/gnmic.yml\n")
 	}
 	b.WriteString("  links:\n")
 	for _, link := range links {
@@ -263,6 +267,7 @@ func PrometheusConfig(labName string, snmpEnabled, gnmiEnabled bool) string {
 		b.WriteString("    metrics_path: /snmp\n")
 		b.WriteString("    params:\n")
 		b.WriteString("      module: [\"eos\"]\n")
+		b.WriteString("      auth: [\"public_v2\"]\n")
 		b.WriteString("    static_configs:\n")
 		b.WriteString("      - targets:\n")
 		b.WriteString("          - " + labName + "-leaf1\n")
@@ -285,11 +290,12 @@ func PrometheusConfig(labName string, snmpEnabled, gnmiEnabled bool) string {
 
 func SNMPConfig() string {
 	return `
+auths:
+  public_v2:
+    version: 2
+    community: public
 modules:
   eos:
-    version: 2c
-    auth:
-      community: public
     walk:
       - 1.3.6.1.2.1.2
       - 1.3.6.1.2.1.31

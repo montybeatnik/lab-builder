@@ -163,6 +163,21 @@ multipass exec "$VM_NAME" -- bash -lc '
 '
 
 ### ───────────────────────────
+### ensure gNMIc image matches VM arch
+### ───────────────────────────
+echo ">>> Pre-pulling gNMIc image for VM architecture..."
+multipass exec "$VM_NAME" -- bash -lc '
+  set -euo pipefail
+  image="ghcr.io/openconfig/gnmic:latest"
+  arch="$(uname -m)"
+  if [[ "$arch" == "arm64" || "$arch" == "aarch64" ]]; then
+    sudo docker pull --platform=linux/arm64 "$image"
+  else
+    sudo docker pull "$image"
+  fi
+'
+
+### ───────────────────────────
 ### optional: deploy the lab
 ### ───────────────────────────
 if [[ "$AUTO_DEPLOY" -eq 1 ]]; then

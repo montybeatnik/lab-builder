@@ -91,6 +91,11 @@ Expose the UI port and print the VM URL:
 make vm_ui
 ```
 
+Deploy the lab (handles gNMIc ARM64 pre-pull and Containerlab run dir):
+```bash
+make vm_deploy
+```
+
 ### The Harder Way
 1. Create new VM with image in VirtualBox 
    1. Open VirtualBox and click on "New".
@@ -192,6 +197,17 @@ sudo containerlab inspect -t lab.clab.yml
 sudo containerlab destroy -t lab.clab.yml
 # view topo 
 sudo containerlab graph -t lab.clab.yml
+```
+
+Troubleshooting (ARM64 gNMIc):
+If you see `exec format error` for gNMIc and your Containerlab version doesn't support `platform:` in the topology file, pre-pull the ARM64 image before deploy:
+```bash
+sudo docker pull --platform=linux/arm64 ghcr.io/openconfig/gnmic:latest
+```
+If the container still fails, remove and re-pull to ensure the correct architecture is cached:
+```bash
+sudo docker image rm ghcr.io/openconfig/gnmic:latest
+sudo docker pull --platform=linux/arm64 ghcr.io/openconfig/gnmic:latest
 ```
 
 ## Creds 
