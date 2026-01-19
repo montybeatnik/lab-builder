@@ -68,6 +68,15 @@ vm_ui:
 	fi; \
 	echo "UI available at: http://$$ip:8080"
 
+vm_monitoring:
+	@multipass exec $(VM_NAME) -- bash -lc 'if command -v ufw >/dev/null 2>&1; then sudo ufw allow 3000/tcp || true; sudo ufw allow 9090/tcp || true; fi'
+	@ip=$$(multipass info $(VM_NAME) | awk "/IPv4/ {print \$$2; exit}"); \
+	if [ -z "$$ip" ]; then \
+		echo "Could not determine VM IPv4 address"; exit 1; \
+	fi; \
+	echo "Grafana available at: http://$$ip:3000"; \
+	echo "Prometheus available at: http://$$ip:9090"
+
 test_data_plane:
 	sudo docker exec -it clab-evpn-rdma-fabric-gpu1 sh -lc 'ping -c3 10.10.10.104'
 

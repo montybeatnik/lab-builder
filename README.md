@@ -96,6 +96,11 @@ Deploy the lab (handles gNMIc ARM64 pre-pull and Containerlab run dir):
 make vm_deploy
 ```
 
+Expose monitoring ports and print URLs (Grafana + Prometheus):
+```bash
+make vm_monitoring
+```
+
 ### The Harder Way
 1. Create new VM with image in VirtualBox 
    1. Open VirtualBox and click on "New".
@@ -198,6 +203,121 @@ sudo containerlab destroy -t lab.clab.yml
 # view topo 
 sudo containerlab graph -t lab.clab.yml
 ```
+
+## Monitoring
+Grafana and Prometheus are exposed on the VM when you deploy the lab with the updated topology.
+
+Quick access (Multipass):
+```bash
+make vm_monitoring
+```
+
+Manual access:
+1. Find the VM IP: `multipass info lab-builder`
+2. Grafana: `http://<vm-ip>:3000` (default user/pass `admin`/`admin`)
+3. Prometheus: `http://<vm-ip>:9090`
+
+### Prometheus: useful queries
+Open Prometheus at `http://<vm-ip>:9090` and use the query bar.
+
+Basic health:
+```promql
+up
+```
+
+SNMP scrape health:
+```promql
+up{job="snmp"}
+```
+
+SNMP scrape duration (seconds):
+```promql
+snmp_scrape_duration_seconds
+```
+
+SNMP PDUs returned per scrape:
+```promql
+snmp_scrape_pdus_returned
+```
+
+gNMI scrape health:
+```promql
+up{job="gnmi"}
+```
+
+If you are unsure which metrics exist, open `http://<vm-ip>:9090/targets` and click the gNMI target to view `/metrics`.
+
+### Interface statistics (SNMP)
+The default SNMP walk already includes interface counters. Try these PromQL queries:
+
+Inbound/outbound octets (per interface):
+```promql
+rate(ifHCInOctets[5m])
+rate(ifHCOutOctets[5m])
+```
+
+Inbound/outbound errors (per interface):
+```promql
+rate(ifInErrors[5m])
+rate(ifOutErrors[5m])
+```
+
+Tip: If a metric name differs, open `http://<vm-ip>:9090/targets`, click the SNMP target, and search for `ifHC` or `ifIn` in `/metrics`.
+
+If SNMP scrapes time out, confirm the EOS configs include:
+```
+snmp-server community public ro
+```
+Then redeploy the lab so the startup configs are applied.
+
+### BGP neighbors (gNMI)
+By default the gNMI config only subscribes to interface counters. To collect BGP neighbor state, add a BGP subscription path in `monitoring/gnmic.yml`, then redeploy:
+```yaml
+subscriptions:
+  interfaces:
+    path: /interfaces/interface/state/counters
+    stream-mode: sample
+    sample-interval: 10s
+  bgp_neighbors:
+    path: /network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/state
+    stream-mode: sample
+    sample-interval: 10s
+```
+
+After redeploy, you can query for neighbor state. Typical fields include:
+```promql
+gnmi_openconfig_network_instance_protocols_protocol_bgp_neighbors_neighbor_state_session_state
+```
+If the exact name differs, use Grafana Explore or the Prometheus target `/metrics` to find the exported BGP metric names.
+
+### Containerlab DNS naming
+Containerlab node names are exposed in Docker DNS as `clab-<lab-name>-<node-name>`. The default monitoring configs use that full name.
+If you change your lab name or node names, update the targets accordingly.
+
+## Clean rebuild (Multipass)
+If you want to reset everything and rebuild the VM from scratch:
+```bash
+multipass stop lab-builder
+multipass delete --purge lab-builder
+make vm_setup
+make vm_server_build
+make vm_server_install
+make vm_server_start
+make vm_deploy
+make vm_monitoring
+```
+
+### Grafana: quick dashboard setup
+Grafana is pre-provisioned with the Prometheus datasource.
+
+1. Open Grafana at `http://<vm-ip>:3000` (default `admin`/`admin`).
+2. Go to **Dashboards → New → New dashboard → Add visualization**.
+3. Choose the **Prometheus** datasource.
+4. Add panels using these example queries:
+   - `up{job="snmp"}`
+   - `snmp_scrape_duration_seconds`
+   - `up{job="gnmi"}`
+5. Save the dashboard.
 
 Troubleshooting (ARM64 gNMIc):
 If you see `exec format error` for gNMIc and your Containerlab version doesn't support `platform:` in the topology file, pre-pull the ARM64 image before deploy:

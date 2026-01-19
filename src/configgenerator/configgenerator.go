@@ -270,7 +270,7 @@ func PrometheusConfig(labName string, snmpEnabled, gnmiEnabled bool) string {
 		b.WriteString("      auth: [\"public_v2\"]\n")
 		b.WriteString("    static_configs:\n")
 		b.WriteString("      - targets:\n")
-		b.WriteString("          - " + labName + "-leaf1\n")
+		b.WriteString("          - clab-" + labName + "-leaf1\n")
 		b.WriteString("    relabel_configs:\n")
 		b.WriteString("      - source_labels: [__address__]\n")
 		b.WriteString("        target_label: __param_target\n")
@@ -299,6 +299,55 @@ modules:
     walk:
       - 1.3.6.1.2.1.2
       - 1.3.6.1.2.1.31
+    metrics:
+      - name: ifHCInOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.6
+        type: counter64
+        help: "Total octets received on the interface."
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+      - name: ifHCOutOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.10
+        type: counter64
+        help: "Total octets transmitted on the interface."
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+      - name: ifInErrors
+        oid: 1.3.6.1.2.1.2.2.1.14
+        type: counter
+        help: "Inbound errors on the interface."
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+      - name: ifOutErrors
+        oid: 1.3.6.1.2.1.2.2.1.20
+        type: counter
+        help: "Outbound errors on the interface."
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
 `
 }
 
@@ -318,7 +367,7 @@ func GNMIConfig(labName string) string {
 	return `
 targets:
   leaf1:
-    address: ` + labName + `-leaf1:6030
+    address: clab-` + labName + `-leaf1:6030
     username: admin
     password: admin
     insecure: true
