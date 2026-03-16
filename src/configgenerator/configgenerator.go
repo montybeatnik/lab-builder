@@ -25,11 +25,11 @@ type NeighborData struct {
 }
 
 type BGPData struct {
-	Enabled  bool
-	ASN      int
-	RouterID string
+	Enabled   bool
+	ASN       int
+	RouterID  string
 	Neighbors []NeighborData
-	EVPN     bool
+	EVPN      bool
 }
 
 type MPLSData struct {
@@ -38,30 +38,33 @@ type MPLSData struct {
 }
 
 type NodeTemplateData struct {
-	Hostname  string
-	Loopback  string
-	Interfaces []InterfaceData
-	BGP       BGPData
-	Protocols string
-	OSPF      string
-	ISIS      string
-	VXLAN     bool
-	VlanID    int
-	Vni       int
-	EdgeIP    string
-	EdgePrefix int
-	MPLS      MPLSData
-	SNMP      bool
-	GNMI      bool
+	Hostname      string
+	Loopback      string
+	Interfaces    []InterfaceData
+	BGP           BGPData
+	Protocols     string
+	OSPF          string
+	ISIS          string
+	VXLAN         bool
+	VlanID        int
+	Vni           int
+	EdgeIP        string
+	EdgePrefix    int
+	EdgeIfName    string
+	NodeType      string
+	MPLS          MPLSData
+	SNMP          bool
+	GNMI          bool
 	SNMPCommunity string
 }
 
 func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplanner.LinkAssigned, nodeMap map[string]labplanner.NodePlan, snmpEnabled, gnmiEnabled bool) (string, error) {
 	data := NodeTemplateData{
-		Hostname: node.Name,
-		Loopback: node.Loopback,
-		SNMP:     snmpEnabled,
-		GNMI:     gnmiEnabled,
+		Hostname:      node.Name,
+		Loopback:      node.Loopback,
+		NodeType:      node.NodeType,
+		SNMP:          snmpEnabled,
+		GNMI:          gnmiEnabled,
 		SNMPCommunity: "public",
 	}
 
@@ -88,8 +91,11 @@ func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplann
 			peerRole = peer.Role
 		}
 		if peerRole == "edge" || strings.HasPrefix(peerName, "edge") {
+			if data.EdgeIfName == "" {
+				data.EdgeIfName = nodeInterfaceName(node.NodeType, ifName)
+			}
 			data.Interfaces = append(data.Interfaces, InterfaceData{
-				Name: eosInterfaceName(ifName),
+				Name: nodeInterfaceName(node.NodeType, ifName),
 				Desc: "to " + peerName,
 				L2:   true,
 				Vlan: 10,
@@ -98,7 +104,7 @@ func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplann
 		}
 		if localIP != "" {
 			data.Interfaces = append(data.Interfaces, InterfaceData{
-				Name: eosInterfaceName(ifName),
+				Name: nodeInterfaceName(node.NodeType, ifName),
 				IP:   localIP,
 				Desc: "to " + peerName,
 			})
@@ -172,12 +178,16 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, link
 	b.WriteString("topology:\n")
 	b.WriteString("  nodes:\n")
 	for _, node := range model.Nodes {
-		kind := "ceos"
-		image := "ceosimage:4.34.2.1f"
 		b.WriteString("    " + node.Name + ":\n")
-		b.WriteString("      kind: " + kind + "\n")
-		b.WriteString("      image: " + image + "\n")
-		if kind == "ceos" {
+		if strings.EqualFold(node.NodeType, "frr") {
+			b.WriteString("      kind: linux\n")
+			b.WriteString("      image: quay.io/frrouting/frr:9.1.3\n")
+			b.WriteString("      binds:\n")
+			b.WriteString("        - configs/" + node.Name + ".cfg:/etc/frr/frr.conf\n")
+			b.WriteString("        - configs/" + node.Name + ".daemons:/etc/frr/daemons\n")
+		} else {
+			b.WriteString("      kind: ceos\n")
+			b.WriteString("      image: ceosimage:4.34.2.1f\n")
 			b.WriteString("      startup-config: configs/" + node.Name + ".cfg\n")
 		}
 	}
@@ -225,7 +235,10 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, link
 	return b.String()
 }
 
-func eosInterfaceName(name string) string {
+func nodeInterfaceName(nodeType, name string) string {
+	if strings.EqualFold(nodeType, "frr") {
+		return name
+	}
 	if strings.HasPrefix(name, "eth") {
 		return "Ethernet" + strings.TrimPrefix(name, "eth")
 	}
@@ -256,6 +269,35 @@ func protocolNet(protocols []string, target, fallback string) string {
 		return ""
 	}
 	return fallback
+}
+
+func RenderFRRDaemons(protocols []string) string {
+	var b strings.Builder
+	b.WriteString("zebra=yes\n")
+	b.WriteString("bgpd=" + yesNo(containsProtocol(protocols, "bgp")) + "\n")
+	b.WriteString("ospfd=" + yesNo(containsProtocol(protocols, "ospf")) + "\n")
+	b.WriteString("isisd=" + yesNo(containsProtocol(protocols, "isis")) + "\n")
+	b.WriteString("ldpd=" + yesNo(containsProtocol(protocols, "mpls-ldp")) + "\n")
+	b.WriteString("pimd=no\n")
+	b.WriteString("ripd=no\n")
+	b.WriteString("ripngd=no\n")
+	b.WriteString("ospf6d=no\n")
+	b.WriteString("eigrpd=no\n")
+	b.WriteString("babeld=no\n")
+	b.WriteString("sharpd=no\n")
+	b.WriteString("pbrd=no\n")
+	b.WriteString("bfdd=no\n")
+	b.WriteString("fabricd=no\n")
+	b.WriteString("vrrpd=no\n")
+	b.WriteString("pathd=no\n")
+	return b.String()
+}
+
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
 }
 
 func PrometheusConfig(labName string, snmpEnabled, gnmiEnabled bool) string {

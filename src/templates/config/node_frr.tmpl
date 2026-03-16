@@ -1,0 +1,80 @@
+frr version 9.1
+frr defaults traditional
+hostname {{ .Hostname }}
+service integrated-vtysh-config
+!
+{{- if .Loopback }}
+interface lo
+ ip address {{ .Loopback }}/32
+!
+{{- end }}
+{{- range .Interfaces }}
+interface {{ .Name }}
+{{- if .Desc }}
+ description {{ .Desc }}
+{{- end }}
+{{- if .L2 }}
+ no ip address
+{{- else }}
+ ip address {{ .IP }}/31
+{{- end }}
+!
+{{- end }}
+{{- if and .VXLAN .EdgeIP .EdgeIfName }}
+interface {{ .EdgeIfName }}
+ ip address {{ .EdgeIP }}/{{ .EdgePrefix }}
+!
+{{- end }}
+{{- if .BGP.Enabled }}
+router bgp {{ .BGP.ASN }}
+ bgp router-id {{ .BGP.RouterID }}
+ no bgp default ipv4-unicast
+{{- range .BGP.Neighbors }}
+ neighbor {{ .IP }} remote-as {{ .ASN }}
+ neighbor {{ .IP }} description {{ .Description }}
+{{- end }}
+ !
+ address-family ipv4 unicast
+{{- range .BGP.Neighbors }}
+  neighbor {{ .IP }} activate
+{{- end }}
+{{- if .Loopback }}
+  network {{ .Loopback }}/32
+{{- end }}
+ exit-address-family
+{{- if .BGP.EVPN }}
+ !
+ address-family l2vpn evpn
+{{- range .BGP.Neighbors }}
+  neighbor {{ .IP }} activate
+{{- end }}
+  advertise-all-vni
+{{- if .Vni }}
+  vni {{ .Vni }}
+   rd auto
+   route-target import auto
+   route-target export auto
+  exit-vni
+{{- end }}
+ exit-address-family
+{{- end }}
+!
+{{- end }}
+{{- if .OSPF }}
+router ospf
+ ospf router-id {{ .OSPF }}
+!
+{{- end }}
+{{- if .ISIS }}
+router isis 1
+ net {{ .ISIS }}
+!
+{{- end }}
+{{- if .MPLS.LDP }}
+mpls ldp
+!
+{{- end }}
+{{- if .Protocols }}
+! protocols: {{ .Protocols }}
+{{- end }}
+line vty

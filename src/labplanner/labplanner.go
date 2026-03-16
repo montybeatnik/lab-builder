@@ -6,8 +6,9 @@ import (
 )
 
 type TopologyNode struct {
-	Name string `json:"name"`
-	Role string `json:"role"`
+	Name     string `json:"name"`
+	Role     string `json:"role"`
+	NodeType string `json:"nodeType,omitempty"`
 }
 
 type TopologyLink struct {
@@ -29,13 +30,14 @@ type TopologyModel struct {
 }
 
 type NodePlan struct {
-	Name      string
-	Role      string
-	ASN       int
-	Loopback  string
-	EdgeIP    string
+	Name       string
+	Role       string
+	NodeType   string
+	ASN        int
+	Loopback   string
+	EdgeIP     string
 	EdgePrefix int
-	Protocols []string
+	Protocols  []string
 }
 
 type LinkAssigned struct {
@@ -49,8 +51,8 @@ type LinkAssigned struct {
 }
 
 type LabPlan struct {
-	Nodes []NodePlan
-	Links []LinkAssigned
+	Nodes     []NodePlan
+	Links     []LinkAssigned
 	EdgeHosts []EdgeHost
 }
 
@@ -88,8 +90,8 @@ func BuildLabPlan(infraCIDR, edgeCIDR string, model TopologyModel, attachments [
 	}
 
 	return LabPlan{
-		Nodes: nodes,
-		Links: linksWithIPs,
+		Nodes:     nodes,
+		Links:     linksWithIPs,
 		EdgeHosts: edgeHosts,
 	}, nil
 }
@@ -187,11 +189,21 @@ func assignASNs(nodes []TopologyNode, protocols ProtocolSet) []NodePlan {
 		plans = append(plans, NodePlan{
 			Name:      n.Name,
 			Role:      role,
+			NodeType:  normalizeNodeType(n.NodeType),
 			ASN:       asn,
 			Protocols: ProtocolsForRole(role, protocols),
 		})
 	}
 	return plans
+}
+
+func normalizeNodeType(nodeType string) string {
+	switch strings.ToLower(strings.TrimSpace(nodeType)) {
+	case "frr":
+		return "frr"
+	default:
+		return "arista"
+	}
 }
 
 func assignInterfaces(links []TopologyLink) []LinkAssigned {

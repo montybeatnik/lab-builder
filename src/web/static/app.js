@@ -227,6 +227,7 @@
   async function validateTopology() {
     const payload = {
       topology: $('topology').value,
+      nodeType: $('nodeType').value,
       nodeCount: numberVal('meshNodes', 0),
       leafCount: numberVal('leaves', 0),
       spineCount: numberVal('spines', 0),
@@ -265,6 +266,7 @@
   async function buildLab() {
     const payload = {
       topology: $('topology').value,
+      nodeType: $('nodeType').value,
       nodeCount: numberVal('meshNodes', 0),
       leafCount: numberVal('leaves', 0),
       spineCount: numberVal('spines', 0),

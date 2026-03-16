@@ -377,6 +377,7 @@ ${USER}   ALL=(ALL) NOPASSWD: ALL
 ```bash
 ssh {VM_IP} "ip netns exec clab-evpn-rdma-fabric-leaf1 tcpdump -U -nni eth1 -w -" | wireshark -k -i -
 # ssh 10.0.0.215 "sudo ip netns exec clab-evpn-rdma-fabric-leaf1 tcpdump -U -nni eth1 -w -" | wireshark -k -i -
+ssh 192.168.2.62 "sudo ip netns exec clab-arista-lab-leaf1 tcpdump -U -nni eth1 -w -" | wireshark -k -i - 
 ```
 
 

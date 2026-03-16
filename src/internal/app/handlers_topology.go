@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -17,97 +17,7 @@ import (
 	"github.com/montybeatnik/arista-lab/laber/labstore"
 )
 
-type TopologyRequest struct {
-	Topology    string      `json:"topology"`
-	NodeCount   int         `json:"nodeCount"`
-	LeafCount   int         `json:"leafCount"`
-	SpineCount  int         `json:"spineCount"`
-	HubCount    int         `json:"hubCount"`
-	SpokeCount  int         `json:"spokeCount"`
-	EdgeNodes   int         `json:"edgeNodes"`
-	InfraCIDR   string      `json:"infraCidr"`
-	EdgeCIDR    string      `json:"edgeCidr"`
-	CustomLinks []LinkInput `json:"customLinks"`
-	EdgeLinks   []EdgeLinkInput `json:"edgeLinks"`
-	Traffic     []Traffic   `json:"traffic"`
-	LabName     string      `json:"labName"`
-	Force       bool        `json:"force"`
-	UseSudo     bool        `json:"sudo"`
-	Protocols   labplanner.ProtocolSet `json:"protocols"`
-	Monitoring  MonitoringConfig       `json:"monitoring"`
-}
-
-type LinkInput struct {
-	A string `json:"a"`
-	B string `json:"b"`
-}
-
-type EdgeLinkInput struct {
-	Edge   string `json:"edge"`
-	Target string `json:"target"`
-}
-
-type Traffic struct {
-	Profile string `json:"profile"`
-	Level   int    `json:"level"`
-}
-
-type MonitoringConfig struct {
-	SNMP bool `json:"snmp"`
-	GNMI bool `json:"gnmi"`
-}
-
-type Check struct {
-	Name   string `json:"name"`
-	Result string `json:"result"` // PASS | WARN | FAIL
-	Detail string `json:"detail,omitempty"`
-}
-
-type AddressSummary struct {
-	InfraCIDR   string `json:"infraCidr"`
-	EdgeCIDR    string `json:"edgeCidr"`
-	InfraTotal  int64  `json:"infraTotal"`
-	InfraNeeded int64  `json:"infraNeeded"`
-	EdgeTotal   int64  `json:"edgeTotal"`
-	EdgeNeeded  int64  `json:"edgeNeeded"`
-	Loopbacks   int64  `json:"loopbacks"`
-	P2PLinks    int64  `json:"p2pLinks"`
-}
-
-type TopologyResponse struct {
-	OK        bool           `json:"ok"`
-	Errors    []string       `json:"errors,omitempty"`
-	Warnings  []string       `json:"warnings,omitempty"`
-	Checks    []Check        `json:"checks,omitempty"`
-	Model     labplanner.TopologyModel `json:"model,omitempty"`
-	Address   AddressSummary `json:"address,omitempty"`
-	CanBuild  bool           `json:"canBuild"`
-	Notes     []string       `json:"notes,omitempty"`
-	RawTarget json.RawMessage `json:"rawTarget,omitempty"`
-}
-
-type BuildResponse struct {
-	OK      bool     `json:"ok"`
-	Error   string   `json:"error,omitempty"`
-	Warnings []string `json:"warnings,omitempty"`
-	Path    string   `json:"path,omitempty"`
-	Files   []string `json:"files,omitempty"`
-}
-
-type DeployRequest struct {
-	LabName string `json:"labName"`
-	UseSudo bool   `json:"sudo"`
-	Force   bool   `json:"force"`
-}
-
-type DeployResponse struct {
-	OK     bool   `json:"ok"`
-	Error  string `json:"error,omitempty"`
-	Output string `json:"output,omitempty"`
-	Path   string `json:"path,omitempty"`
-}
-
-func topologyHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) TopologyValidate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -121,7 +31,7 @@ func topologyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	model, errs, warns := buildTopologyModel(req)
+	model, errs, warns := BuildTopologyModel(req)
 	addr, addrChecks, addrErrs, addrWarns := validateAddressing(req, model)
 	errs = append(errs, addrErrs...)
 	warns = append(warns, addrWarns...)
@@ -141,116 +51,112 @@ func topologyHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func topologyBuildHandler(cfg serverCfg) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var req TopologyRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: "bad JSON: " + err.Error()})
-			return
-		}
-		labName := strings.TrimSpace(req.LabName)
-		if labName == "" {
-			writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: "lab name is required"})
-			return
-		}
-		if !isSafeName(labName) {
-			writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: "lab name must be alphanumeric, dash, or underscore"})
-			return
-		}
-
-		model, errs, warns := buildTopologyModel(req)
-		_, _, addrErrs, addrWarns := validateAddressing(req, model)
-		errs = append(errs, addrErrs...)
-		warns = append(warns, addrWarns...)
-		if len(errs) > 0 {
-			writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: strings.Join(errs, "; "), Warnings: warns})
-			return
-		}
-
-		root := filepath.Join(cfg.BaseDir, labName)
-		if !req.Force {
-			if _, err := os.Stat(root); err == nil {
-				writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: "lab directory already exists"})
-				return
-			}
-		}
-		if err := os.MkdirAll(root, 0o755); err != nil {
-			writeJSON(w, http.StatusInternalServerError, BuildResponse{OK: false, Error: "mkdir failed: " + err.Error()})
-			return
-		}
-
-		plan, err := labplanner.BuildLabPlan(req.InfraCIDR, req.EdgeCIDR, model, toEdgeAttachments(req.EdgeLinks))
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: err.Error()})
-			return
-		}
-
-		files, err := writeLabFiles(root, labName, model, plan, req.Monitoring)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, BuildResponse{OK: false, Error: err.Error()})
-			return
-		}
-
-		if db, err := labstore.OpenLabDB(cfg.BaseDir); err == nil {
-			_ = labstore.UpsertLab(db, labName, root)
-			_ = labstore.SaveLabPlan(db, labName, plan, model.Protocols)
-			_ = db.Close()
-		}
-		writeJSON(w, http.StatusOK, BuildResponse{OK: true, Path: root, Files: files, Warnings: warns})
+func (h *Handlers) TopologyBuild(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
+	var req TopologyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: "bad JSON: " + err.Error()})
+		return
+	}
+	labName := strings.TrimSpace(req.LabName)
+	if labName == "" {
+		writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: "lab name is required"})
+		return
+	}
+	if !isSafeName(labName) {
+		writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: "lab name must be alphanumeric, dash, or underscore"})
+		return
+	}
+
+	model, errs, warns := BuildTopologyModel(req)
+	_, _, addrErrs, addrWarns := validateAddressing(req, model)
+	errs = append(errs, addrErrs...)
+	warns = append(warns, addrWarns...)
+	if len(errs) > 0 {
+		writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: strings.Join(errs, "; "), Warnings: warns})
+		return
+	}
+
+	root := filepath.Join(h.cfg.BaseDir, labName)
+	if !req.Force {
+		if _, err := os.Stat(root); err == nil {
+			writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: "lab directory already exists"})
+			return
+		}
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		writeJSON(w, http.StatusInternalServerError, BuildResponse{OK: false, Error: "mkdir failed: " + err.Error()})
+		return
+	}
+
+	plan, err := labplanner.BuildLabPlan(req.InfraCIDR, req.EdgeCIDR, model, toEdgeAttachments(req.EdgeLinks))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, BuildResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	files, err := writeLabFiles(root, labName, model, plan, req.Monitoring)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, BuildResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	if db, err := labstore.OpenLabDB(h.cfg.BaseDir); err == nil {
+		_ = labstore.UpsertLab(db, labName, root)
+		_ = labstore.SaveLabPlan(db, labName, plan, model.Protocols)
+		_ = db.Close()
+	}
+	writeJSON(w, http.StatusOK, BuildResponse{OK: true, Path: root, Files: files, Warnings: warns})
 }
 
-func topologyDeployHandler(cfg serverCfg) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var req DeployRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "bad JSON: " + err.Error()})
-			return
-		}
-		labName := strings.TrimSpace(req.LabName)
-		if labName == "" {
-			writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "lab name is required"})
-			return
-		}
-		if !isSafeName(labName) {
-			writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "lab name must be alphanumeric, dash, or underscore"})
-			return
-		}
-
-		labPath := filepath.Join(cfg.BaseDir, labName, "lab.clab.yml")
-		if _, err := os.Stat(labPath); err != nil {
-			writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "lab file not found at " + labPath})
-			return
-		}
-
-		args := []string{"containerlab", "deploy", "-t", labPath, "--reconfigure"}
-		if req.UseSudo {
-			args = append([]string{"sudo", "-E", "-n"}, args...)
-		}
-
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
-		defer cancel()
-
-		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-		clabBase := "/home/ubuntu/.clab-runs"
-		_ = os.MkdirAll(clabBase, 0o755)
-		cmd.Env = append(os.Environ(), "CLAB_LABDIR_BASE="+clabBase)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: err.Error(), Output: string(output), Path: labPath})
-			return
-		}
-
-		writeJSON(w, http.StatusOK, DeployResponse{OK: true, Output: string(output), Path: labPath})
+func (h *Handlers) TopologyDeploy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
+	var req DeployRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "bad JSON: " + err.Error()})
+		return
+	}
+	labName := strings.TrimSpace(req.LabName)
+	if labName == "" {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "lab name is required"})
+		return
+	}
+	if !isSafeName(labName) {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "lab name must be alphanumeric, dash, or underscore"})
+		return
+	}
+
+	labPath := filepath.Join(h.cfg.BaseDir, labName, "lab.clab.yml")
+	if _, err := os.Stat(labPath); err != nil {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "lab file not found at " + labPath})
+		return
+	}
+
+	args := []string{"containerlab", "deploy", "-t", labPath, "--reconfigure"}
+	if req.UseSudo {
+		args = append([]string{"sudo", "-E", "-n"}, args...)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	clabBase := "/home/ubuntu/.clab-runs"
+	_ = os.MkdirAll(clabBase, 0o755)
+	cmd.Env = append(os.Environ(), "CLAB_LABDIR_BASE="+clabBase)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: err.Error(), Output: string(output), Path: labPath})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, DeployResponse{OK: true, Output: string(output), Path: labPath})
 }
 
 func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan labplanner.LabPlan, monitoring MonitoringConfig) ([]string, error) {
@@ -282,7 +188,11 @@ func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan la
 			continue
 		}
 		path := filepath.Join(cfgDir, node.Name+".cfg")
-		body, err := configgenerator.RenderNodeConfig("templates/config/node.tmpl", node, nodeLinks[node.Name], nodeMap, monitoring.SNMP, monitoring.GNMI)
+		tplPath := "templates/config/node.tmpl"
+		if node.NodeType == "frr" {
+			tplPath = "templates/config/node_frr.tmpl"
+		}
+		body, err := configgenerator.RenderNodeConfig(tplPath, node, nodeLinks[node.Name], nodeMap, monitoring.SNMP, monitoring.GNMI)
 		if err != nil {
 			return files, err
 		}
@@ -290,6 +200,15 @@ func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan la
 			return files, err
 		}
 		files = append(files, path)
+
+		if node.NodeType == "frr" {
+			daemonsPath := filepath.Join(cfgDir, node.Name+".daemons")
+			daemonsBody := configgenerator.RenderFRRDaemons(node.Protocols)
+			if err := os.WriteFile(daemonsPath, []byte(daemonsBody), 0o644); err != nil {
+				return files, err
+			}
+			files = append(files, daemonsPath)
+		}
 	}
 
 	trafficDir := filepath.Join(root, "traffic")
@@ -373,40 +292,7 @@ func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan la
 	return files, nil
 }
 
-func isSafeName(name string) bool {
-	for _, r := range name {
-		if r >= 'a' && r <= 'z' {
-			continue
-		}
-		if r >= 'A' && r <= 'Z' {
-			continue
-		}
-		if r >= '0' && r <= '9' {
-			continue
-		}
-		if r == '-' || r == '_' {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func toEdgeAttachments(links []EdgeLinkInput) []labplanner.EdgeAttachment {
-	var out []labplanner.EdgeAttachment
-	for _, l := range links {
-		edge := strings.TrimSpace(l.Edge)
-		target := strings.TrimSpace(l.Target)
-		if edge == "" || target == "" {
-			continue
-		}
-		out = append(out, labplanner.EdgeAttachment{Edge: edge, Target: target})
-	}
-	return out
-}
-
-
-func buildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string, []string) {
+func BuildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string, []string) {
 	var errs []string
 	var warns []string
 	topology := strings.ToLower(strings.TrimSpace(req.Topology))
@@ -418,6 +304,11 @@ func buildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string
 		Topology:  topology,
 		EdgeNodes: maxInt(req.EdgeNodes, 0),
 		Protocols: labplanner.NormalizeProtocols(req.Protocols),
+	}
+	nodeType := normalizeNodeType(req.NodeType)
+	if nodeType == "invalid" {
+		errs = append(errs, "node type must be arista or frr")
+		nodeType = "arista"
 	}
 
 	switch topology {
@@ -431,17 +322,14 @@ func buildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string
 			errs = append(errs, "leaf count must be > 0")
 		}
 		for i := 1; i <= spines; i++ {
-			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "spine" + itoa(i), Role: "spine"})
+			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "spine" + itoa(i), Role: "spine", NodeType: nodeType})
 		}
 		for i := 1; i <= leaves; i++ {
-			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "leaf" + itoa(i), Role: "leaf"})
+			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "leaf" + itoa(i), Role: "leaf", NodeType: nodeType})
 		}
 		for i := 1; i <= spines; i++ {
 			for j := 1; j <= leaves; j++ {
-				model.Links = append(model.Links, labplanner.TopologyLink{
-					A: "spine" + itoa(i),
-					B: "leaf" + itoa(j),
-				})
+				model.Links = append(model.Links, labplanner.TopologyLink{A: "spine" + itoa(i), B: "leaf" + itoa(j)})
 			}
 		}
 	case "full-mesh":
@@ -450,14 +338,11 @@ func buildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string
 			errs = append(errs, "node count must be >= 2")
 		}
 		for i := 1; i <= n; i++ {
-			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "node" + itoa(i), Role: "mesh"})
+			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "node" + itoa(i), Role: "mesh", NodeType: nodeType})
 		}
 		for i := 1; i <= n; i++ {
 			for j := i + 1; j <= n; j++ {
-				model.Links = append(model.Links, labplanner.TopologyLink{
-					A: "node" + itoa(i),
-					B: "node" + itoa(j),
-				})
+				model.Links = append(model.Links, labplanner.TopologyLink{A: "node" + itoa(i), B: "node" + itoa(j)})
 			}
 		}
 	case "hub-spoke":
@@ -470,17 +355,14 @@ func buildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string
 			errs = append(errs, "spoke count must be > 0")
 		}
 		for i := 1; i <= hubs; i++ {
-			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "hub" + itoa(i), Role: "hub"})
+			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "hub" + itoa(i), Role: "hub", NodeType: nodeType})
 		}
 		for i := 1; i <= spokes; i++ {
-			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "spoke" + itoa(i), Role: "spoke"})
+			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "spoke" + itoa(i), Role: "spoke", NodeType: nodeType})
 		}
 		for i := 1; i <= hubs; i++ {
 			for j := 1; j <= spokes; j++ {
-				model.Links = append(model.Links, labplanner.TopologyLink{
-					A: "hub" + itoa(i),
-					B: "spoke" + itoa(j),
-				})
+				model.Links = append(model.Links, labplanner.TopologyLink{A: "hub" + itoa(i), B: "spoke" + itoa(j)})
 			}
 		}
 	case "custom":
@@ -489,7 +371,7 @@ func buildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string
 			errs = append(errs, "node count must be >= 1")
 		}
 		for i := 1; i <= n; i++ {
-			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "node" + itoa(i), Role: "custom"})
+			model.Nodes = append(model.Nodes, labplanner.TopologyNode{Name: "node" + itoa(i), Role: "custom", NodeType: nodeType})
 		}
 		validNames := map[string]bool{}
 		for _, n := range model.Nodes {
@@ -532,6 +414,17 @@ func buildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string
 	return model, errs, warns
 }
 
+func normalizeNodeType(nodeType string) string {
+	switch strings.ToLower(strings.TrimSpace(nodeType)) {
+	case "", "arista":
+		return "arista"
+	case "frr":
+		return "frr"
+	default:
+		return "invalid"
+	}
+}
+
 func topologyChecks(model labplanner.TopologyModel, errs, warns []string) []Check {
 	result := "PASS"
 	detail := "inputs look good"
@@ -542,8 +435,7 @@ func topologyChecks(model labplanner.TopologyModel, errs, warns []string) []Chec
 		result = "WARN"
 		detail = strings.Join(warns, "; ")
 	}
-	check := Check{Name: "Topology inputs", Result: result, Detail: detail}
-	return []Check{check}
+	return []Check{{Name: "Topology inputs", Result: result, Detail: detail}}
 }
 
 func validateAddressing(req TopologyRequest, model labplanner.TopologyModel) (AddressSummary, []Check, []string, []string) {
@@ -688,4 +580,36 @@ func itoa(i int) string {
 
 func itoa64(i int64) string {
 	return strconv.FormatInt(i, 10)
+}
+
+func isSafeName(name string) bool {
+	for _, r := range name {
+		if r >= 'a' && r <= 'z' {
+			continue
+		}
+		if r >= 'A' && r <= 'Z' {
+			continue
+		}
+		if r >= '0' && r <= '9' {
+			continue
+		}
+		if r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func toEdgeAttachments(links []EdgeLinkInput) []labplanner.EdgeAttachment {
+	var out []labplanner.EdgeAttachment
+	for _, l := range links {
+		edge := strings.TrimSpace(l.Edge)
+		target := strings.TrimSpace(l.Target)
+		if edge == "" || target == "" {
+			continue
+		}
+		out = append(out, labplanner.EdgeAttachment{Edge: edge, Target: target})
+	}
+	return out
 }
