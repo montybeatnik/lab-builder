@@ -20,11 +20,6 @@ interface {{ .Name }}
 {{- end }}
 !
 {{- end }}
-{{- if and .VXLAN .EdgeIP .EdgeIfName }}
-interface {{ .EdgeIfName }}
- ip address {{ .EdgeIP }}/{{ .EdgePrefix }}
-!
-{{- end }}
 {{- if .BGP.Enabled }}
 router bgp {{ .BGP.ASN }}
  bgp router-id {{ .BGP.RouterID }}
@@ -37,6 +32,8 @@ router bgp {{ .BGP.ASN }}
  address-family ipv4 unicast
 {{- range .BGP.Neighbors }}
   neighbor {{ .IP }} activate
+  neighbor {{ .IP }} route-map ALLOW-ALL in
+  neighbor {{ .IP }} route-map ALLOW-ALL out
 {{- end }}
 {{- if .Loopback }}
   network {{ .Loopback }}/32
@@ -47,6 +44,8 @@ router bgp {{ .BGP.ASN }}
  address-family l2vpn evpn
 {{- range .BGP.Neighbors }}
   neighbor {{ .IP }} activate
+  neighbor {{ .IP }} route-map ALLOW-ALL in
+  neighbor {{ .IP }} route-map ALLOW-ALL out
 {{- end }}
   advertise-all-vni
 {{- if .Vni }}
@@ -58,6 +57,8 @@ router bgp {{ .BGP.ASN }}
 {{- end }}
  exit-address-family
 {{- end }}
+!
+route-map ALLOW-ALL permit 10
 !
 {{- end }}
 {{- if .OSPF }}

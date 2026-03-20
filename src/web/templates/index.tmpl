@@ -267,4 +267,21 @@
     <pre id="planJson"></pre>
   </details>
 </section>
+
+<section class="panel">
+  <div class="validate-header">
+    <h2>Config Preview</h2>
+    <button id="renderConfigBtn" class="ghost" type="button">Render node config</button>
+  </div>
+  <p class="muted">Render a single node config from the current form state without generating the full lab.</p>
+  <div class="form-grid">
+    <label>
+      Node
+      <select id="configNode"></select>
+    </label>
+  </div>
+  <div id="configPreviewMeta" class="muted"></div>
+  <pre id="configPreview" class="result-block" hidden></pre>
+  <pre id="daemonsPreview" class="result-block" hidden></pre>
+</section>
 {{ end }}

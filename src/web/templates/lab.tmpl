@@ -80,6 +80,25 @@
 </section>
 
 <section class="panel">
+  <div class="validate-header">
+    <h2>Running Node Config</h2>
+    <button id="nodeConfigBtn" type="button">Load config</button>
+  </div>
+  <p class="muted">Load node names and config from the same selected lab used by inspect and health.</p>
+  <div class="form-grid">
+    <label>
+      Node
+      <select id="nodeConfigSelect">
+        <option value="">Select a lab first</option>
+      </select>
+    </label>
+  </div>
+  <pre id="nodeConfigOut" class="result-block" hidden></pre>
+  <pre id="nodeDaemonsOut" class="result-block" hidden></pre>
+  <pre id="nodeStartupOut" class="result-block" hidden></pre>
+</section>
+
+<section class="panel">
   <h2>Next tests</h2>
   <p class="muted">Traffic profiles and performance checks will surface here as the lab grows.</p>
   <div class="check pass">

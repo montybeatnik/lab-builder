@@ -172,8 +172,12 @@ func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplann
 	return buf.String(), nil
 }
 
-func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, links []labplanner.LinkAssigned, edgeHosts []labplanner.EdgeHost, monitoring bool) string {
+func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, nodes []labplanner.NodePlan, links []labplanner.LinkAssigned, edgeHosts []labplanner.EdgeHost, monitoring bool) string {
 	var b strings.Builder
+	nodeMap := map[string]labplanner.NodePlan{}
+	for _, node := range nodes {
+		nodeMap[node.Name] = node
+	}
 	b.WriteString("name: " + labName + "\n")
 	b.WriteString("topology:\n")
 	b.WriteString("  nodes:\n")
@@ -185,6 +189,15 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, link
 			b.WriteString("      binds:\n")
 			b.WriteString("        - configs/" + node.Name + ".cfg:/etc/frr/frr.conf\n")
 			b.WriteString("        - configs/" + node.Name + ".daemons:/etc/frr/daemons\n")
+			if planNode, ok := nodeMap[node.Name]; ok {
+				execLines := frrStartupExec(planNode, links)
+				if len(execLines) > 0 {
+					b.WriteString("      exec:\n")
+					for _, line := range execLines {
+						b.WriteString("        - " + line + "\n")
+					}
+				}
+			}
 		} else {
 			b.WriteString("      kind: ceos\n")
 			b.WriteString("      image: ceosimage:4.34.2.1f\n")
@@ -233,6 +246,36 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, link
 		b.WriteString("    - endpoints: [" + link.A + ":" + link.AIf + ", " + link.B + ":" + link.BIf + "]\n")
 	}
 	return b.String()
+}
+
+func frrStartupExec(node labplanner.NodePlan, links []labplanner.LinkAssigned) []string {
+	if !containsProtocol(node.Protocols, "vxlan") || node.Loopback == "" {
+		return nil
+	}
+	edgeIf := ""
+	for _, link := range links {
+		switch {
+		case link.A == node.Name && strings.HasPrefix(link.B, "edge"):
+			edgeIf = link.AIf
+		case link.B == node.Name && strings.HasPrefix(link.A, "edge"):
+			edgeIf = link.BIf
+		}
+		if edgeIf != "" {
+			break
+		}
+	}
+	if edgeIf == "" {
+		return nil
+	}
+	return []string{
+		"ip link add vxlan10 type vxlan id 10 local " + node.Loopback + " dev " + edgeIf + " dstport 4789",
+		"ip link add br0 type bridge",
+		"ip link set br0 up",
+		"ip link set vxlan10 master br0",
+		"ip link set vxlan10 up",
+		"ip link set dev " + edgeIf + " master br0",
+		"ip link set dev " + edgeIf + " up",
+	}
 }
 
 func nodeInterfaceName(nodeType, name string) string {

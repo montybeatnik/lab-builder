@@ -112,6 +112,77 @@ func (h *Handlers) TopologyBuild(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, BuildResponse{OK: true, Path: root, Files: files, Warnings: warns})
 }
 
+func (h *Handlers) TopologyRenderConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req RenderConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, RenderConfigResponse{OK: false, Error: "bad JSON: " + err.Error()})
+		return
+	}
+	req.NodeName = strings.TrimSpace(req.NodeName)
+	if req.NodeName == "" {
+		writeJSON(w, http.StatusBadRequest, RenderConfigResponse{OK: false, Error: "node name is required"})
+		return
+	}
+
+	model, errs, warns := BuildTopologyModel(req.TopologyRequest)
+	_, _, addrErrs, addrWarns := validateAddressing(req.TopologyRequest, model)
+	errs = append(errs, addrErrs...)
+	warns = append(warns, addrWarns...)
+	if len(errs) > 0 {
+		writeJSON(w, http.StatusBadRequest, RenderConfigResponse{OK: false, Error: strings.Join(errs, "; "), Warnings: warns})
+		return
+	}
+
+	plan, err := labplanner.BuildLabPlan(req.InfraCIDR, req.EdgeCIDR, model, toEdgeAttachments(req.EdgeLinks))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, RenderConfigResponse{OK: false, Error: err.Error(), Warnings: warns})
+		return
+	}
+
+	nodeMap := map[string]labplanner.NodePlan{}
+	for _, node := range plan.Nodes {
+		nodeMap[node.Name] = node
+	}
+	node, ok := nodeMap[req.NodeName]
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, RenderConfigResponse{OK: false, Error: "node not found in current topology: " + req.NodeName, Warnings: warns})
+		return
+	}
+	if node.Role == "edge" {
+		writeJSON(w, http.StatusBadRequest, RenderConfigResponse{OK: false, Error: "config preview is only available for infrastructure nodes", Warnings: warns})
+		return
+	}
+
+	nodeLinks := map[string][]labplanner.LinkAssigned{}
+	for _, link := range plan.Links {
+		nodeLinks[link.A] = append(nodeLinks[link.A], link)
+		nodeLinks[link.B] = append(nodeLinks[link.B], link)
+	}
+
+	tplPath := configTemplatePath(node.NodeType)
+	body, err := configgenerator.RenderNodeConfig(tplPath, node, nodeLinks[node.Name], nodeMap, req.Monitoring.SNMP, req.Monitoring.GNMI)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, RenderConfigResponse{OK: false, Error: err.Error(), Warnings: warns})
+		return
+	}
+
+	resp := RenderConfigResponse{
+		OK:       true,
+		Warnings: warns,
+		NodeName: node.Name,
+		NodeType: node.NodeType,
+		Config:   body,
+	}
+	if node.NodeType == "frr" {
+		resp.Daemons = configgenerator.RenderFRRDaemons(node.Protocols)
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (h *Handlers) TopologyDeploy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -161,7 +232,7 @@ func (h *Handlers) TopologyDeploy(w http.ResponseWriter, r *http.Request) {
 
 func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan labplanner.LabPlan, monitoring MonitoringConfig) ([]string, error) {
 	var files []string
-	yamlBody := configgenerator.RenderContainerlabYAML(labName, model, plan.Links, plan.EdgeHosts, monitoring.SNMP || monitoring.GNMI)
+	yamlBody := configgenerator.RenderContainerlabYAML(labName, model, plan.Nodes, plan.Links, plan.EdgeHosts, monitoring.SNMP || monitoring.GNMI)
 	yamlPath := filepath.Join(root, "lab.clab.yml")
 	if err := os.WriteFile(yamlPath, []byte(yamlBody), 0o644); err != nil {
 		return files, err
@@ -188,10 +259,7 @@ func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan la
 			continue
 		}
 		path := filepath.Join(cfgDir, node.Name+".cfg")
-		tplPath := "templates/config/node.tmpl"
-		if node.NodeType == "frr" {
-			tplPath = "templates/config/node_frr.tmpl"
-		}
+		tplPath := configTemplatePath(node.NodeType)
 		body, err := configgenerator.RenderNodeConfig(tplPath, node, nodeLinks[node.Name], nodeMap, monitoring.SNMP, monitoring.GNMI)
 		if err != nil {
 			return files, err
@@ -290,6 +358,29 @@ func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan la
 	}
 
 	return files, nil
+}
+
+func configTemplatePath(nodeType string) string {
+	name := "node.tmpl"
+	if nodeType == "frr" {
+		name = "node_frr.tmpl"
+	}
+	return resolveTemplatePath(filepath.Join("templates", "config", name))
+}
+
+func resolveTemplatePath(rel string) string {
+	candidates := []string{
+		rel,
+		filepath.Join("..", rel),
+		filepath.Join("..", "..", rel),
+		filepath.Join("..", "..", "..", rel),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return rel
 }
 
 func BuildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string, []string) {

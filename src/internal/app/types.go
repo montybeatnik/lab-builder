@@ -194,3 +194,42 @@ type DeployResponse struct {
 	Output string `json:"output,omitempty"`
 	Path   string `json:"path,omitempty"`
 }
+
+type RenderConfigRequest struct {
+	TopologyRequest
+	NodeName string `json:"nodeName"`
+}
+
+type RenderConfigResponse struct {
+	OK       bool     `json:"ok"`
+	Error    string   `json:"error,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+	NodeName string   `json:"nodeName,omitempty"`
+	NodeType string   `json:"nodeType,omitempty"`
+	Config   string   `json:"config,omitempty"`
+	Daemons  string   `json:"daemons,omitempty"`
+}
+
+type LabNodesRequest struct {
+	Lab string `json:"lab"`
+}
+
+type LabNodesResponse struct {
+	OK    bool     `json:"ok"`
+	Error string   `json:"error,omitempty"`
+	Nodes []string `json:"nodes,omitempty"`
+}
+
+type LabNodeConfigRequest struct {
+	Lab      string `json:"lab"`
+	NodeName string `json:"nodeName"`
+}
+
+type LabNodeConfigResponse struct {
+	OK       bool   `json:"ok"`
+	Error    string `json:"error,omitempty"`
+	NodeName string `json:"nodeName,omitempty"`
+	Config   string `json:"config,omitempty"`
+	Daemons  string `json:"daemons,omitempty"`
+	Startup  string `json:"startup,omitempty"`
+}

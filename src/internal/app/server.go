@@ -27,10 +27,13 @@ func NewMux(h *Handlers) (*http.ServeMux, error) {
 	mux.HandleFunc("/viewer", h.Viewer)
 	mux.HandleFunc("/labs", h.Labs)
 	mux.HandleFunc("/labplan", h.LabPlan)
+	mux.HandleFunc("/lab/nodes", h.LabNodes)
+	mux.HandleFunc("/lab/config", h.LabNodeConfig)
 	mux.HandleFunc("/inspect", h.Inspect)
 	mux.HandleFunc("/runcmd", h.RunCmd)
 	mux.HandleFunc("/health", h.Health)
 	mux.HandleFunc("/topology/validate", h.TopologyValidate)
+	mux.HandleFunc("/topology/render-config", h.TopologyRenderConfig)
 	mux.HandleFunc("/topology/build", h.TopologyBuild)
 	mux.HandleFunc("/topology/deploy", h.TopologyDeploy)
 	return mux, nil

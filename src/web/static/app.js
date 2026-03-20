@@ -41,6 +41,17 @@
     return Array.from({ length: nodes }, (_, i) => `node${i + 1}`);
   }
 
+  function updateConfigNodeOptions() {
+    const select = $('configNode');
+    if (!select) return;
+    const nodes = currentNodeNames();
+    const current = select.value;
+    select.innerHTML = nodes.map(n => `<option value="${n}">${n}</option>`).join('');
+    if (nodes.includes(current)) {
+      select.value = current;
+    }
+  }
+
   function numberVal(id, fallback) {
     const val = parseInt($(id).value, 10);
     if (Number.isFinite(val)) return val;
@@ -224,8 +235,8 @@
     return profiles.filter(p => p.on).map(p => ({ profile: p.id.toLowerCase(), level: p.level }));
   }
 
-  async function validateTopology() {
-    const payload = {
+  function buildTopologyPayload() {
+    return {
       topology: $('topology').value,
       nodeType: $('nodeType').value,
       nodeCount: numberVal('meshNodes', 0),
@@ -242,6 +253,10 @@
       edgeLinks: collectEdgeLinks(),
       monitoring: collectMonitoring()
     };
+  }
+
+  async function validateTopology() {
+    const payload = buildTopologyPayload();
     const status = $('buildStatus');
     status.textContent = 'Validating...';
     status.className = 'status status-pending';
@@ -265,21 +280,7 @@
 
   async function buildLab() {
     const payload = {
-      topology: $('topology').value,
-      nodeType: $('nodeType').value,
-      nodeCount: numberVal('meshNodes', 0),
-      leafCount: numberVal('leaves', 0),
-      spineCount: numberVal('spines', 0),
-      hubCount: numberVal('hubs', 0),
-      spokeCount: numberVal('spokes', 0),
-      edgeNodes: numberVal('edgeNodes', 0),
-      infraCidr: $('infraCidr').value.trim(),
-      edgeCidr: $('edgeCidr').value.trim(),
-      customLinks: collectCustomLinks(),
-      traffic: collectTraffic(),
-      protocols: collectProtocols(),
-      edgeLinks: collectEdgeLinks(),
-      monitoring: collectMonitoring(),
+      ...buildTopologyPayload(),
       labName: $('labName').value.trim(),
       force: $('forceBuild').value === 'true'
     };
@@ -388,6 +389,57 @@
     };
   }
 
+  async function renderConfigPreview() {
+    const nodeName = $('configNode').value;
+    const output = $('configPreview');
+    const daemons = $('daemonsPreview');
+    const meta = $('configPreviewMeta');
+    const status = $('buildStatus');
+    output.hidden = true;
+    output.textContent = '';
+    daemons.hidden = true;
+    daemons.textContent = '';
+    meta.textContent = '';
+
+    status.textContent = `Rendering ${nodeName}...`;
+    status.className = 'status status-pending';
+
+    const res = await fetch('/topology/render-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...buildTopologyPayload(),
+        nodeName
+      })
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
+    if (!data.ok) {
+      status.textContent = 'Config preview failed';
+      status.className = 'status status-fail';
+      output.hidden = false;
+      output.textContent = data.error || 'config preview failed';
+      sessionStorage.setItem('builder_config_preview', output.textContent);
+      sessionStorage.setItem('builder_config_meta', '');
+      sessionStorage.setItem('builder_daemons_preview', '');
+      sessionStorage.setItem('builder_config_ok', 'false');
+      return;
+    }
+
+    status.textContent = `${data.nodeName} ready`;
+    status.className = 'status status-pass';
+    meta.textContent = `${data.nodeName} (${data.nodeType})`;
+    output.hidden = false;
+    output.textContent = data.config || '';
+    if (data.daemons) {
+      daemons.hidden = false;
+      daemons.textContent = data.daemons;
+    }
+    sessionStorage.setItem('builder_config_preview', output.textContent);
+    sessionStorage.setItem('builder_config_meta', meta.textContent);
+    sessionStorage.setItem('builder_daemons_preview', data.daemons || '');
+    sessionStorage.setItem('builder_config_ok', 'true');
+  }
+
   function renderChecks(data) {
     const wrap = $('checks');
     wrap.innerHTML = '';
@@ -428,6 +480,7 @@
       syncCustomLinks();
       renderGraph();
       renderEdgeAttachments();
+      updateConfigNodeOptions();
     });
     ['spines', 'leaves', 'meshNodes', 'hubs', 'spokes', 'customNodes', 'edgeNodes'].forEach(id => {
       const el = $(id);
@@ -436,6 +489,7 @@
         syncCustomLinks();
         renderGraph();
         renderEdgeAttachments();
+        updateConfigNodeOptions();
       });
     });
     $('addLinkBtn').addEventListener('click', () => {
@@ -447,6 +501,7 @@
     $('validateBtn').addEventListener('click', validateTopology);
     $('buildBtn').addEventListener('click', buildLab);
     $('deployBtn').addEventListener('click', deployLab);
+    $('renderConfigBtn').addEventListener('click', renderConfigPreview);
   }
 
   function renderEdgeAttachments() {
@@ -518,6 +573,7 @@
     renderGraph();
     setupProtocolDrag();
     renderEdgeAttachments();
+    updateConfigNodeOptions();
 
     const savedChecks = sessionStorage.getItem('builder_checks');
     if (savedChecks) {
@@ -541,6 +597,22 @@
       const result = $('deployResult');
       result.className = `build-result ${ok ? 'pass' : 'fail'}`;
       result.textContent = savedDeploy;
+      result.hidden = false;
+    }
+    const savedMeta = sessionStorage.getItem('builder_config_meta');
+    if (savedMeta) {
+      $('configPreviewMeta').textContent = savedMeta;
+    }
+    const savedConfig = sessionStorage.getItem('builder_config_preview');
+    if (savedConfig) {
+      const result = $('configPreview');
+      result.textContent = savedConfig;
+      result.hidden = false;
+    }
+    const savedDaemons = sessionStorage.getItem('builder_daemons_preview');
+    if (savedDaemons) {
+      const result = $('daemonsPreview');
+      result.textContent = savedDaemons;
       result.hidden = false;
     }
   });
