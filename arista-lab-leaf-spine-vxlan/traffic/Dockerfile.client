@@ -1,8 +1,0 @@
-FROM golang:1.23-alpine AS build
-WORKDIR /src
-COPY . .
-RUN CGO_ENABLED=0 go build -o /out/traffic-client ./cmd/traffic-client
-
-FROM alpine:3.19
-COPY --from=build /out/traffic-client /traffic/traffic-client
-ENTRYPOINT ["/traffic/traffic-client"]

@@ -709,6 +709,9 @@ func mergeLabsWithFilesystem(baseDir string, indexed []labstore.LabRecord) ([]la
 
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return indexed, nil
+		}
 		return nil, err
 	}
 	for _, entry := range entries {

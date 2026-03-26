@@ -15,7 +15,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Listen:  ":8080",
-		BaseDir: "/home/ubuntu/lab",
+		BaseDir: "/home/ubuntu/lab/.labs",
 	}
 }
 
