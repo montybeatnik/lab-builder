@@ -410,6 +410,11 @@ sudo -E containerlab destroy -t ~/lab/lab.clab.yml || true
 sudo -E containerlab deploy  -t ~/lab/lab.clab.yml --reconfigure
 ```
 
+## Prom SNMP Queries 
+```
+ifOperStatus{instance="clab-frr-lab-leaf1"}
+```
+
 ## TODO:
 - [ ] add multiple topologies
   - [ ] base IP setup between devices

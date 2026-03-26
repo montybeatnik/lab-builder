@@ -101,7 +101,8 @@
     const layout = {};
     const spine = nodes.filter(n => n.role === 'spine' || n.role === 'hub').map(n => n.name);
     const leaf = nodes.filter(n => n.role === 'leaf' || n.role === 'spoke').map(n => n.name);
-    const rest = names.filter(n => !spine.includes(n) && !leaf.includes(n));
+    const edge = names.filter(n => n.startsWith('edge'));
+    const rest = names.filter(n => !spine.includes(n) && !leaf.includes(n) && !edge.includes(n));
 
     const width = 1000;
     const height = 520;
@@ -111,11 +112,26 @@
     spine.forEach((n, i) => layout[n] = { x: spineXs[i], y: 120, role: 'spine' });
     leaf.forEach((n, i) => layout[n] = { x: leafXs[i], y: 380, role: 'leaf' });
 
-    const radius = 120;
-    const centerX = width / 2;
+    const edgeXs = spreadX(edge.length, width, 140);
+    edge.forEach((n, i) => layout[n] = { x: edgeXs[i], y: 470, role: 'edge' });
+
+    if (spine.length === 0 && leaf.length === 0) {
+      const center = { x: width / 2, y: height / 2 };
+      const radius = 160;
+      rest.forEach((n, i) => {
+        const angle = (Math.PI * 2 * i) / Math.max(rest.length, 1);
+        layout[n] = {
+          x: center.x + radius * Math.cos(angle),
+          y: center.y + radius * Math.sin(angle),
+          role: 'mesh'
+        };
+      });
+      return layout;
+    }
+
+    const restXs = spreadX(rest.length, width, 160);
     rest.forEach((n, i) => {
-      const angle = (Math.PI * 2 * i) / Math.max(rest.length, 1);
-      layout[n] = { x: centerX + radius * Math.cos(angle), y: 260 + radius * Math.sin(angle), role: 'mesh' };
+      layout[n] = { x: restXs[i], y: 250, role: 'mesh' };
     });
     return layout;
   }

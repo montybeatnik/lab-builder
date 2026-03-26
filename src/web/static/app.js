@@ -38,6 +38,23 @@
     }
   }
 
+  function initCollapsiblePanels() {
+    const panels = document.querySelectorAll('details.collapsible-panel[data-collapse-key]');
+    panels.forEach(panel => {
+      const key = `builder_panel_${panel.getAttribute('data-collapse-key')}`;
+      try {
+        const saved = localStorage.getItem(key);
+        if (saved === 'open') panel.open = true;
+        if (saved === 'closed') panel.open = false;
+      } catch {}
+      panel.addEventListener('toggle', () => {
+        try {
+          localStorage.setItem(key, panel.open ? 'open' : 'closed');
+        } catch {}
+      });
+    });
+  }
+
   async function loadBuilderLabs() {
     const select = $('builderLabSelect');
     if (!select) return;
@@ -864,6 +881,7 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     if (!$('topology')) return;
+    initCollapsiblePanels();
     showTopoFields();
     updateProtocolLanes();
     applyProtocolDefaults();

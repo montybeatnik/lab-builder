@@ -107,8 +107,10 @@
   </div>
 </section>
 
-<section class="panel address-panel">
-  <h2>Addressing</h2>
+<details class="panel collapsible-panel address-panel" data-collapse-key="addressing">
+  <summary class="panel-summary">
+    <h2>Addressing</h2>
+  </summary>
   <p class="muted">Provide a large infrastructure block; the system will divide it for loopbacks and point-to-point links.</p>
   <div class="form-grid">
     <label>
@@ -120,13 +122,15 @@
       <input id="edgeCidr" type="text" placeholder="172.16.0.0/24" value="172.16.0.0/24">
     </label>
   </div>
-</section>
+</details>
 
-<section class="panel traffic-panel">
-  <div class="section-head">
-    <h2>Edge traffic profiles</h2>
-    <span class="pill planned">PLANNED</span>
-  </div>
+<details class="panel collapsible-panel traffic-panel" data-collapse-key="edge-traffic">
+  <summary class="panel-summary">
+    <div class="section-head">
+      <h2>Edge traffic profiles</h2>
+      <span class="pill planned">PLANNED</span>
+    </div>
+  </summary>
   <p class="muted">Select the traffic types your edge clients will generate. This section is staged for a future rollout and does not affect generated lab output yet.</p>
   <div class="traffic-grid">
     <label class="traffic-card">
@@ -162,10 +166,12 @@
       </div>
     </label>
   </div>
-</section>
+</details>
 
-<section class="panel">
-  <h2>Monitoring</h2>
+<details class="panel collapsible-panel" data-collapse-key="monitoring">
+  <summary class="panel-summary">
+    <h2>Monitoring</h2>
+  </summary>
   <p class="muted">Deploy Prometheus/Grafana plus SNMP and gNMI collectors inside the lab.</p>
   <div class="monitor-links">
     <a id="grafanaLink" class="ghost monitor-link" href="#" target="_blank" rel="noopener noreferrer">Open Grafana</a>
@@ -202,17 +208,23 @@ rate(ifOutErrors[5m])</pre>
       </div>
     </label>
   </div>
-</section>
+</details>
 
-<section class="panel">
-  <h2>Edge attachments</h2>
+<details class="panel collapsible-panel" data-collapse-key="edge-attachments">
+  <summary class="panel-summary">
+    <h2>Edge attachments</h2>
+  </summary>
   <p class="muted">Choose where each edge node connects. Leave as auto to use round-robin.</p>
   <div id="edgeAttachments" class="edge-attachments"></div>
-</section>
+</details>
 
-<section class="panel">
-  <div class="section-head">
-    <h2>Protocols</h2>
+<details class="panel collapsible-panel" open data-collapse-key="protocols">
+  <summary class="panel-summary">
+    <div class="section-head">
+      <h2>Protocols</h2>
+    </div>
+  </summary>
+  <div class="section-head panel-actions">
     <button id="applyProtoDefaultsBtn" class="ghost" type="button">Apply defaults</button>
   </div>
   <p class="muted">Drag protocols into role lanes to apply them to devices.</p>
@@ -257,17 +269,19 @@ rate(ifOutErrors[5m])</pre>
       </div>
     </div>
   </div>
-</section>
+</details>
 
-<section class="panel validate-panel">
-  <div class="validate-header">
-    <h2>Validation</h2>
-    <div class="validate-actions">
-      <button id="validateBtn" type="button">Validate &amp; Preview</button>
-      <button id="buildBtn" class="ghost" type="button">Generate Lab</button>
-      <button id="deployBtn" class="ghost" type="button">Deploy Lab</button>
-      <button id="destroyBtn" class="ghost" type="button">Destroy Lab</button>
+<details class="panel collapsible-panel validate-panel" open data-collapse-key="validation">
+  <summary class="panel-summary">
+    <div class="validate-header">
+      <h2>Validation</h2>
     </div>
+  </summary>
+  <div class="validate-actions">
+    <button id="validateBtn" type="button">Validate &amp; Preview</button>
+    <button id="buildBtn" class="ghost" type="button">Generate Lab</button>
+    <button id="deployBtn" class="ghost" type="button">Deploy Lab</button>
+    <button id="destroyBtn" class="ghost" type="button">Destroy Lab</button>
   </div>
   <div class="form-grid">
     <label>
@@ -306,11 +320,15 @@ rate(ifOutErrors[5m])</pre>
     <summary>Generated plan</summary>
     <pre id="planJson"></pre>
   </details>
-</section>
+</details>
 
-<section class="panel">
-  <div class="validate-header">
-    <h2>Config Preview</h2>
+<details class="panel collapsible-panel" open data-collapse-key="config-preview">
+  <summary class="panel-summary">
+    <div class="validate-header">
+      <h2>Config Preview</h2>
+    </div>
+  </summary>
+  <div class="validate-actions">
     <button id="renderConfigBtn" class="ghost" type="button">Render node config</button>
   </div>
   <p class="muted">Render a single node config from the current form state without generating the full lab.</p>
@@ -323,5 +341,5 @@ rate(ifOutErrors[5m])</pre>
   <div id="configPreviewMeta" class="muted"></div>
   <pre id="configPreview" class="result-block" hidden></pre>
   <pre id="daemonsPreview" class="result-block" hidden></pre>
-</section>
+</details>
 {{ end }}

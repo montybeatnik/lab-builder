@@ -141,6 +141,39 @@ h1 {
   justify-content: space-between;
   gap: 0.7rem;
 }
+.panel-actions {
+  margin-bottom: 0.6rem;
+}
+
+.collapsible-panel > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.collapsible-panel > summary::-webkit-details-marker {
+  display: none;
+}
+.collapsible-panel > summary.panel-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+.collapsible-panel > summary.panel-summary::after {
+  content: "▾";
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 180ms ease;
+}
+.collapsible-panel:not([open]) > summary.panel-summary::after {
+  transform: rotate(-90deg);
+}
+.collapsible-panel > summary h2 {
+  margin: 0;
+}
+.collapsible-panel > summary + * {
+  margin-top: 0.8rem;
+}
 
 .muted { color: var(--muted); }
 
