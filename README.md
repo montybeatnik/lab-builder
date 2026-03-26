@@ -37,6 +37,70 @@ You'll need to do the following:
     ./vmsetup.sh
     ```
 
+### Multipass (recommended)
+Use the Makefile to stand up the Multipass VM (named `lab-builder`), install Docker + Containerlab, and mount the repo into the VM.
+```bash
+make vm_setup
+```
+
+Build the Go server and install the systemd user service:
+```bash
+make vm_server_build
+make vm_server_install
+```
+
+Start the Go UI server inside the VM (systemd user service):
+```bash
+make vm_server_start
+make vm_server_status_service
+```
+
+If you need to stop it:
+```bash
+make vm_server_stop_service
+```
+
+If the VM gets into a bad state or multipass hangs, rebuild the VM:
+```bash
+multipass stop lab-builder
+multipass delete --purge lab-builder
+make vm_setup
+make vm_server_build
+make vm_server_install
+make vm_server_start
+```
+
+If you only need to rebuild the Go server after code changes:
+```bash
+make vm_rebuild
+```
+
+Start the Go UI server inside the VM (foreground, manual run):
+```bash
+make vm_server
+```
+
+Or run it in the background and tail logs:
+```bash
+make vm_server_bg
+make vm_server_logs
+```
+
+Expose the UI port and print the VM URL:
+```bash
+make vm_ui
+```
+
+Deploy the lab (handles gNMIc ARM64 pre-pull and Containerlab run dir):
+```bash
+make vm_deploy
+```
+
+Expose monitoring ports and print URLs (Grafana + Prometheus):
+```bash
+make vm_monitoring
+```
+
 ### The Harder Way
 1. Create new VM with image in VirtualBox 
    1. Open VirtualBox and click on "New".
@@ -140,6 +204,132 @@ sudo containerlab destroy -t lab.clab.yml
 sudo containerlab graph -t lab.clab.yml
 ```
 
+## Monitoring
+Grafana and Prometheus are exposed on the VM when you deploy the lab with the updated topology.
+
+Quick access (Multipass):
+```bash
+make vm_monitoring
+```
+
+Manual access:
+1. Find the VM IP: `multipass info lab-builder`
+2. Grafana: `http://<vm-ip>:3000` (default user/pass `admin`/`admin`)
+3. Prometheus: `http://<vm-ip>:9090`
+
+### Prometheus: useful queries
+Open Prometheus at `http://<vm-ip>:9090` and use the query bar.
+
+Basic health:
+```promql
+up
+```
+
+SNMP scrape health:
+```promql
+up{job="snmp"}
+```
+
+SNMP scrape duration (seconds):
+```promql
+snmp_scrape_duration_seconds
+```
+
+SNMP PDUs returned per scrape:
+```promql
+snmp_scrape_pdus_returned
+```
+
+gNMI scrape health:
+```promql
+up{job="gnmi"}
+```
+
+If you are unsure which metrics exist, open `http://<vm-ip>:9090/targets` and click the gNMI target to view `/metrics`.
+
+### Interface statistics (SNMP)
+The default SNMP walk already includes interface counters. Try these PromQL queries:
+
+Inbound/outbound octets (per interface):
+```promql
+rate(ifHCInOctets[5m])
+rate(ifHCOutOctets[5m])
+```
+
+Inbound/outbound errors (per interface):
+```promql
+rate(ifInErrors[5m])
+rate(ifOutErrors[5m])
+```
+
+Tip: If a metric name differs, open `http://<vm-ip>:9090/targets`, click the SNMP target, and search for `ifHC` or `ifIn` in `/metrics`.
+
+If SNMP scrapes time out, confirm the EOS configs include:
+```
+snmp-server community public ro
+```
+Then redeploy the lab so the startup configs are applied.
+
+### BGP neighbors (gNMI)
+By default the gNMI config only subscribes to interface counters. To collect BGP neighbor state, add a BGP subscription path in `monitoring/gnmic.yml`, then redeploy:
+```yaml
+subscriptions:
+  interfaces:
+    path: /interfaces/interface/state/counters
+    stream-mode: sample
+    sample-interval: 10s
+  bgp_neighbors:
+    path: /network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/state
+    stream-mode: sample
+    sample-interval: 10s
+```
+
+After redeploy, you can query for neighbor state. Typical fields include:
+```promql
+gnmi_openconfig_network_instance_protocols_protocol_bgp_neighbors_neighbor_state_session_state
+```
+If the exact name differs, use Grafana Explore or the Prometheus target `/metrics` to find the exported BGP metric names.
+
+### Containerlab DNS naming
+Containerlab node names are exposed in Docker DNS as `clab-<lab-name>-<node-name>`. The default monitoring configs use that full name.
+If you change your lab name or node names, update the targets accordingly.
+
+## Clean rebuild (Multipass)
+If you want to reset everything and rebuild the VM from scratch:
+```bash
+multipass stop lab-builder
+multipass delete --purge lab-builder
+make vm_setup
+make vm_server_build
+make vm_server_install
+make vm_server_start
+make vm_deploy
+make vm_monitoring
+```
+
+### Grafana: quick dashboard setup
+Grafana is pre-provisioned with the Prometheus datasource.
+
+1. Open Grafana at `http://<vm-ip>:3000` (default `admin`/`admin`).
+2. Go to **Dashboards → New → New dashboard → Add visualization**.
+3. Choose the **Prometheus** datasource.
+4. Add panels using these example queries:
+   - `up{job="snmp"}`
+   - `snmp_scrape_duration_seconds`
+   - `up{job="gnmi"}`
+5. Save the dashboard.
+
+Troubleshooting (ARM64 gNMIc):
+If you see `exec format error` for gNMIc and your Containerlab version doesn't support `platform:` in the topology file, pre-pull the ARM64 image before deploy:
+```bash
+sudo docker pull --platform=linux/arm64 ghcr.io/openconfig/gnmic:latest
+```
+If the container still fails, remove and re-pull to ensure the correct architecture is cached:
+```bash
+sudo docker image rm ghcr.io/openconfig/gnmic:latest
+sudo docker pull --platform=linux/arm64 ghcr.io/openconfig/gnmic:latest
+```
+
 ## Creds 
 - user: admin
 - pass: admin
@@ -162,7 +352,7 @@ sudo docker exec -it clab-evpn-rdma-fabric-gpu1 sh -lc 'ping -c3 10.10.10.104'
 
 ## Debug 
 ### Restart docker 
-```bash
+```bash 
 sudo snap restart docker
 ```
 
@@ -176,6 +366,12 @@ sudo docker exec -it clab-evpn-rdma-fabric-gpu4 sh -lc 'ip link set eth1 mtu 500
 
 ## Wireshark Capture
 ### To run sudo run 
+
+#### First change editor to vim. 
+```bash
+sudo update-alternatives --config editor 
+```
+
 ```bash
 sudo visudo 
 # add this line to the bottom
@@ -187,8 +383,13 @@ ${USER}   ALL=(ALL) NOPASSWD: ALL
 ```bash
 ssh {VM_IP} "ip netns exec clab-evpn-rdma-fabric-leaf1 tcpdump -U -nni eth1 -w -" | wireshark -k -i -
 # ssh 10.0.0.215 "sudo ip netns exec clab-evpn-rdma-fabric-leaf1 tcpdump -U -nni eth1 -w -" | wireshark -k -i -
+ssh 192.168.2.62 "sudo ip netns exec clab-arista-lab-leaf1 tcpdump -U -nni eth1 -w -" | wireshark -k -i - 
 ```
 
+May need to set an alias. 
+```bash
+alias wireshark=/Applications/Wireshark.app/Contents/MacOS/Wireshark
+```
 
 ```
 leaf1#show vxlan config-sanity
@@ -207,6 +408,11 @@ mkdir -p ~/.clab-runs
 export CLAB_LABDIR_BASE="$HOME/.clab-runs"   # where Containerlab will write the clab-<name>/ dir
 sudo -E containerlab destroy -t ~/lab/lab.clab.yml || true
 sudo -E containerlab deploy  -t ~/lab/lab.clab.yml --reconfigure
+```
+
+## Prom SNMP Queries 
+```
+ifOperStatus{instance="clab-frr-lab-leaf1"}
 ```
 
 ## TODO:

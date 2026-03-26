@@ -1,0 +1,599 @@
+package configgenerator
+
+import (
+	"bytes"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"text/template"
+
+	"github.com/montybeatnik/arista-lab/laber/labplanner"
+)
+
+type InterfaceData struct {
+	Name string
+	IP   string
+	Desc string
+	L2   bool
+	Vlan int
+}
+
+type NeighborData struct {
+	IP          string
+	ASN         int
+	Description string
+}
+
+type BGPData struct {
+	Enabled   bool
+	ASN       int
+	RouterID  string
+	Neighbors []NeighborData
+	EVPN      bool
+}
+
+type MPLSData struct {
+	LDP  bool
+	RSVP bool
+}
+
+type EVPNMHData struct {
+	Enabled  bool
+	BondName string
+	EdgeName string
+	ESID     string
+	SysMAC   string
+}
+
+type NodeTemplateData struct {
+	Hostname      string
+	Loopback      string
+	Interfaces    []InterfaceData
+	BGP           BGPData
+	Protocols     string
+	OSPF          string
+	ISIS          string
+	VXLAN         bool
+	VlanID        int
+	Vni           int
+	EdgeIP        string
+	EdgePrefix    int
+	EdgeIfName    string
+	NodeType      string
+	MPLS          MPLSData
+	EVPNMH        EVPNMHData
+	SNMP          bool
+	GNMI          bool
+	SNMPCommunity string
+}
+
+func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplanner.LinkAssigned, allLinks []labplanner.LinkAssigned, nodeMap map[string]labplanner.NodePlan, snmpEnabled, gnmiEnabled bool) (string, error) {
+	data := NodeTemplateData{
+		Hostname:      node.Name,
+		Loopback:      node.Loopback,
+		NodeType:      node.NodeType,
+		SNMP:          snmpEnabled,
+		GNMI:          gnmiEnabled,
+		SNMPCommunity: "public",
+	}
+	data.EVPNMH = evpnMHConfig(node, allLinks)
+
+	for _, link := range links {
+		var (
+			peerName string
+			localIP  string
+			ifName   string
+		)
+		if link.A == node.Name {
+			peerName = link.B
+			localIP = link.AIP
+			ifName = link.AIf
+		} else if link.B == node.Name {
+			peerName = link.A
+			localIP = link.BIP
+			ifName = link.BIf
+		} else {
+			continue
+		}
+
+		peerRole := ""
+		if peer, ok := nodeMap[peerName]; ok {
+			peerRole = peer.Role
+		}
+		if peerRole == "edge" || strings.HasPrefix(peerName, "edge") {
+			if data.EVPNMH.Enabled && peerName == data.EVPNMH.EdgeName {
+				continue
+			}
+			if data.EdgeIfName == "" {
+				data.EdgeIfName = nodeInterfaceName(node.NodeType, ifName)
+			}
+			data.Interfaces = append(data.Interfaces, InterfaceData{
+				Name: nodeInterfaceName(node.NodeType, ifName),
+				Desc: "to " + peerName,
+				L2:   true,
+				Vlan: 10,
+			})
+			continue
+		}
+		if localIP != "" {
+			data.Interfaces = append(data.Interfaces, InterfaceData{
+				Name: nodeInterfaceName(node.NodeType, ifName),
+				IP:   localIP,
+				Desc: "to " + peerName,
+			})
+		}
+	}
+
+	data.Protocols = strings.Join(node.Protocols, ", ")
+	data.OSPF = protocolRouterID(node.Protocols, "ospf", node.Loopback, "1.1.1.1")
+	data.ISIS = protocolNet(node.Protocols, "isis", "49.0001.0000.0000.0001.00")
+	data.VXLAN = containsProtocol(node.Protocols, "vxlan") && node.EdgeIP != ""
+	if data.VXLAN {
+		data.VlanID = 10
+		data.Vni = 1010
+		data.EdgeIP = node.EdgeIP
+		data.EdgePrefix = node.EdgePrefix
+	}
+	data.MPLS = MPLSData{
+		LDP:  containsProtocol(node.Protocols, "mpls-ldp"),
+		RSVP: containsProtocol(node.Protocols, "mpls-rsvp"),
+	}
+
+	if containsProtocol(node.Protocols, "bgp") {
+		data.BGP.Enabled = true
+		data.BGP.ASN = node.ASN
+		data.BGP.EVPN = containsProtocol(node.Protocols, "evpn")
+		if node.Loopback != "" {
+			data.BGP.RouterID = node.Loopback
+		} else {
+			data.BGP.RouterID = "1.1.1.1"
+		}
+		for _, link := range links {
+			var peerName, peerIP string
+			if link.A == node.Name {
+				peerName = link.B
+				peerIP = link.BIP
+			} else if link.B == node.Name {
+				peerName = link.A
+				peerIP = link.AIP
+			} else {
+				continue
+			}
+			if peerIP == "" {
+				continue
+			}
+			peerASN := 65000
+			if peer, ok := nodeMap[peerName]; ok {
+				peerASN = peer.ASN
+			}
+			data.BGP.Neighbors = append(data.BGP.Neighbors, NeighborData{
+				IP:          peerIP,
+				ASN:         peerASN,
+				Description: peerName,
+			})
+		}
+	}
+
+	tpl, err := template.ParseFiles(filepath.Clean(tplPath))
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	if err := tpl.Execute(&buf, data); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, nodes []labplanner.NodePlan, links []labplanner.LinkAssigned, edgeHosts []labplanner.EdgeHost, monitoring, snmpEnabled bool) string {
+	var b strings.Builder
+	nodeMap := map[string]labplanner.NodePlan{}
+	for _, node := range nodes {
+		nodeMap[node.Name] = node
+	}
+	b.WriteString("name: " + labName + "\n")
+	b.WriteString("topology:\n")
+	b.WriteString("  nodes:\n")
+	for _, node := range model.Nodes {
+		b.WriteString("    " + node.Name + ":\n")
+		if strings.EqualFold(node.NodeType, "frr") {
+			b.WriteString("      kind: linux\n")
+			b.WriteString("      image: quay.io/frrouting/frr:9.1.3\n")
+			b.WriteString("      binds:\n")
+			b.WriteString("        - configs/" + node.Name + ".cfg:/etc/frr/frr.conf\n")
+			b.WriteString("        - configs/" + node.Name + ".daemons:/etc/frr/daemons\n")
+			if snmpEnabled {
+				b.WriteString("        - configs/" + node.Name + ".snmpd.conf:/etc/snmp/snmpd.conf\n")
+			}
+			if planNode, ok := nodeMap[node.Name]; ok {
+				execLines := frrStartupExec(planNode, nodes, links)
+				if snmpEnabled {
+					// Start snmpd and self-install it when the FRR image variant does
+					// not include net-snmp by default.
+					execLines = append(execLines, "sh -lc 'if ! command -v snmpd >/dev/null 2>&1; then if command -v apt-get >/dev/null 2>&1; then apt-get update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y snmpd >/dev/null 2>&1; elif command -v apk >/dev/null 2>&1; then apk add --no-cache net-snmp >/dev/null 2>&1; fi; fi; if command -v snmpd >/dev/null 2>&1; then snmpd -f -Lo -C -c /etc/snmp/snmpd.conf & else echo snmpd-not-found; fi'")
+				}
+				if len(execLines) > 0 {
+					b.WriteString("      exec:\n")
+					for _, line := range execLines {
+						b.WriteString("        - " + line + "\n")
+					}
+				}
+			}
+		} else {
+			b.WriteString("      kind: ceos\n")
+			b.WriteString("      image: ceosimage:4.34.2.1f\n")
+			b.WriteString("      startup-config: configs/" + node.Name + ".cfg\n")
+		}
+	}
+	for _, host := range edgeHosts {
+		b.WriteString("    " + host.Name + ":\n")
+		b.WriteString("      kind: linux\n")
+		b.WriteString("      image: alpine:3.19\n")
+		if host.IP != "" && len(host.IfNames) > 0 {
+			b.WriteString("      exec:\n")
+			if len(host.IfNames) == 1 {
+				b.WriteString("        - ip link set " + host.IfNames[0] + " up\n")
+				b.WriteString("        - ip addr add " + host.IP + "/" + strconv.Itoa(host.Prefix) + " dev " + host.IfNames[0] + "\n")
+			} else {
+				// EVPN multihoming requires the CE to present a single bonded access
+				// interface while using multiple physical links to the ES peers.
+				b.WriteString("        - ip link add bond0 type bond mode active-backup\n")
+				b.WriteString("        - ip link set bond0 up\n")
+				for _, ifName := range host.IfNames {
+					b.WriteString("        - ip link set dev " + ifName + " down\n")
+					b.WriteString("        - ip link set dev " + ifName + " master bond0\n")
+					b.WriteString("        - ip link set " + ifName + " up\n")
+				}
+				b.WriteString("        - ip addr add " + host.IP + "/" + strconv.Itoa(host.Prefix) + " dev bond0\n")
+			}
+		}
+	}
+	if monitoring {
+		b.WriteString("    prometheus:\n")
+		b.WriteString("      kind: linux\n")
+		b.WriteString("      image: prom/prometheus:v2.52.0\n")
+		b.WriteString("      ports:\n")
+		b.WriteString("        - 9090:9090\n")
+		b.WriteString("      binds:\n")
+		b.WriteString("        - monitoring/prometheus.yml:/etc/prometheus/prometheus.yml\n")
+		b.WriteString("    grafana:\n")
+		b.WriteString("      kind: linux\n")
+		b.WriteString("      image: grafana/grafana:10.4.2\n")
+		b.WriteString("      ports:\n")
+		b.WriteString("        - 3000:3000\n")
+		b.WriteString("      binds:\n")
+		b.WriteString("        - monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml\n")
+		b.WriteString("    snmp-exporter:\n")
+		b.WriteString("      kind: linux\n")
+		b.WriteString("      image: prom/snmp-exporter:v0.26.0\n")
+		b.WriteString("    gnmic:\n")
+		b.WriteString("      kind: linux\n")
+		b.WriteString("      image: ghcr.io/openconfig/gnmic:latest\n")
+		b.WriteString("      binds:\n")
+		b.WriteString("        - monitoring/gnmic.yml:/gnmic/gnmic.yml\n")
+		b.WriteString("      cmd: subscribe --config /gnmic/gnmic.yml\n")
+	}
+	b.WriteString("  links:\n")
+	for _, link := range links {
+		b.WriteString("    - endpoints: [" + link.A + ":" + link.AIf + ", " + link.B + ":" + link.BIf + "]\n")
+	}
+	return b.String()
+}
+
+func frrStartupExec(node labplanner.NodePlan, nodes []labplanner.NodePlan, links []labplanner.LinkAssigned) []string {
+	if !containsProtocol(node.Protocols, "vxlan") || node.Loopback == "" {
+		return nil
+	}
+	var edgeIfs []string
+	mh := evpnMHConfig(node, links)
+	var mhMembers []string
+	for _, link := range links {
+		switch {
+		case link.A == node.Name && strings.HasPrefix(link.B, "edge"):
+			if mh.Enabled && link.B == mh.EdgeName {
+				mhMembers = append(mhMembers, link.AIf)
+			} else {
+				edgeIfs = append(edgeIfs, link.AIf)
+			}
+		case link.B == node.Name && strings.HasPrefix(link.A, "edge"):
+			if mh.Enabled && link.A == mh.EdgeName {
+				mhMembers = append(mhMembers, link.BIf)
+			} else {
+				edgeIfs = append(edgeIfs, link.BIf)
+			}
+		}
+	}
+	if len(edgeIfs) == 0 && len(mhMembers) == 0 {
+		return nil
+	}
+	execLines := []string{
+		// Linux manages the EVPN dataplane objects directly; FRR learns about them
+		// via netlink and attaches EVPN multihoming state to the bond interface.
+		"ip link add vxlan10 type vxlan id 10 local " + node.Loopback + " dstport 4789 nolearning",
+		"ip link add br0 type bridge",
+		"ip link set br0 up",
+		"ip link set vxlan10 master br0",
+		"ip link set dev vxlan10 type bridge_slave learning off neigh_suppress on",
+		"ip link set vxlan10 up",
+	}
+	if mh.Enabled {
+		execLines = append(execLines,
+			"ip link add bond0 type bond mode active-backup",
+			"ip link set bond0 up",
+		)
+		for _, member := range mhMembers {
+			execLines = append(execLines,
+				"ip link set dev "+member+" down",
+				"ip link set dev "+member+" master bond0",
+				"ip link set "+member+" up",
+			)
+		}
+		execLines = append(execLines, "ip link set dev bond0 master br0")
+	}
+	for _, edgeIf := range edgeIfs {
+		execLines = append(execLines,
+			"ip link set dev "+edgeIf+" master br0",
+			"ip link set dev "+edgeIf+" up",
+		)
+	}
+	for _, peer := range nodes {
+		if peer.Name == node.Name || peer.Loopback == "" || !containsProtocol(peer.Protocols, "vxlan") {
+			continue
+		}
+		// Program a static flood-list entry so unknown unicast, ARP, and broadcast
+		// traffic can reach remote VTEPs in FRR-based labs.
+		execLines = append(execLines, "bridge fdb append 00:00:00:00:00:00 dev vxlan10 dst "+peer.Loopback)
+	}
+	return execLines
+}
+
+func evpnMHConfig(node labplanner.NodePlan, links []labplanner.LinkAssigned) EVPNMHData {
+	if !containsProtocol(node.Protocols, "vxlan") || node.Role != "leaf" {
+		return EVPNMHData{}
+	}
+	edge1Links := 0
+	localEdge1 := false
+	for _, link := range links {
+		if link.A == "edge1" || link.B == "edge1" {
+			edge1Links++
+			if link.A == node.Name || link.B == node.Name {
+				localEdge1 = true
+			}
+		}
+	}
+	if edge1Links < 2 || !localEdge1 {
+		return EVPNMHData{}
+	}
+	return EVPNMHData{
+		Enabled:  true,
+		BondName: "bond0",
+		EdgeName: "edge1",
+		ESID:     "1",
+		SysMAC:   "02:00:00:00:00:01",
+	}
+}
+
+func nodeInterfaceName(nodeType, name string) string {
+	if strings.EqualFold(nodeType, "frr") {
+		return name
+	}
+	if strings.HasPrefix(name, "eth") {
+		return "Ethernet" + strings.TrimPrefix(name, "eth")
+	}
+	return name
+}
+
+func containsProtocol(list []string, target string) bool {
+	for _, item := range list {
+		if strings.EqualFold(item, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func protocolRouterID(protocols []string, target, loopback, fallback string) string {
+	if !containsProtocol(protocols, target) {
+		return ""
+	}
+	if loopback != "" {
+		return loopback
+	}
+	return fallback
+}
+
+func protocolNet(protocols []string, target, fallback string) string {
+	if !containsProtocol(protocols, target) {
+		return ""
+	}
+	return fallback
+}
+
+func RenderFRRDaemons(protocols []string) string {
+	var b strings.Builder
+	b.WriteString("zebra=yes\n")
+	b.WriteString("bgpd=" + yesNo(containsProtocol(protocols, "bgp")) + "\n")
+	b.WriteString("ospfd=" + yesNo(containsProtocol(protocols, "ospf")) + "\n")
+	b.WriteString("isisd=" + yesNo(containsProtocol(protocols, "isis")) + "\n")
+	b.WriteString("ldpd=" + yesNo(containsProtocol(protocols, "mpls-ldp")) + "\n")
+	b.WriteString("pimd=no\n")
+	b.WriteString("ripd=no\n")
+	b.WriteString("ripngd=no\n")
+	b.WriteString("ospf6d=no\n")
+	b.WriteString("eigrpd=no\n")
+	b.WriteString("babeld=no\n")
+	b.WriteString("sharpd=no\n")
+	b.WriteString("pbrd=no\n")
+	b.WriteString("bfdd=no\n")
+	b.WriteString("fabricd=no\n")
+	b.WriteString("vrrpd=no\n")
+	b.WriteString("pathd=no\n")
+	return b.String()
+}
+
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
+}
+
+func PrometheusConfig(labName string, nodes []labplanner.NodePlan, snmpEnabled, gnmiEnabled bool) string {
+	var b strings.Builder
+	b.WriteString("global:\n  scrape_interval: 15s\n")
+	b.WriteString("scrape_configs:\n")
+	if snmpEnabled {
+		targets := snmpTargets(labName, nodes)
+		b.WriteString("  - job_name: \"snmp\"\n")
+		b.WriteString("    scrape_interval: 30s\n")
+		b.WriteString("    scrape_timeout: 25s\n")
+		b.WriteString("    metrics_path: /snmp\n")
+		b.WriteString("    params:\n")
+		b.WriteString("      module: [\"if_mib\"]\n")
+		b.WriteString("      auth: [\"public_v2\"]\n")
+		b.WriteString("    static_configs:\n")
+		b.WriteString("      - targets:\n")
+		for _, target := range targets {
+			b.WriteString("          - " + target + "\n")
+		}
+		b.WriteString("    relabel_configs:\n")
+		b.WriteString("      - source_labels: [__address__]\n")
+		b.WriteString("        target_label: __param_target\n")
+		b.WriteString("      - source_labels: [__param_target]\n")
+		b.WriteString("        target_label: instance\n")
+		b.WriteString("      - target_label: __address__\n")
+		b.WriteString("        replacement: snmp-exporter:9116\n")
+	}
+	if gnmiEnabled {
+		b.WriteString("  - job_name: \"gnmi\"\n")
+		b.WriteString("    static_configs:\n")
+		b.WriteString("      - targets:\n")
+		b.WriteString("          - gnmic:9804\n")
+	}
+	return b.String()
+}
+
+func snmpTargets(labName string, nodes []labplanner.NodePlan) []string {
+	var targets []string
+	seen := map[string]bool{}
+	for _, node := range nodes {
+		if !strings.EqualFold(node.Role, "leaf") {
+			continue
+		}
+		target := "clab-" + labName + "-" + node.Name
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
+		targets = append(targets, target)
+	}
+	if len(targets) == 0 {
+		return []string{"clab-" + labName + "-leaf1"}
+	}
+	return targets
+}
+
+func SNMPConfig() string {
+	return `
+auths:
+  public_v2:
+    version: 2
+    community: public
+modules:
+  if_mib:
+    walk:
+      - 1.3.6.1.2.1.2
+      - 1.3.6.1.2.1.31
+    metrics:
+      - name: ifHCInOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.6
+        type: counter
+        help: "Total octets received on the interface."
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+      - name: ifHCOutOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.10
+        type: counter
+        help: "Total octets transmitted on the interface."
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+      - name: ifInErrors
+        oid: 1.3.6.1.2.1.2.2.1.14
+        type: counter
+        help: "Inbound errors on the interface."
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+      - name: ifOutErrors
+        oid: 1.3.6.1.2.1.2.2.1.20
+        type: counter
+        help: "Outbound errors on the interface."
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+`
+}
+
+func FRRSNMPDConfig() string {
+	return `
+agentaddress udp:161,udp6:[::]:161
+rocommunity public
+rocommunity6 public
+sysLocation lab
+sysContact admin
+`
+}
+
+func GrafanaDatasource() string {
+	return `
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+`
+}
+
+func GNMIConfig(labName string) string {
+	return `
+targets:
+  leaf1:
+    address: clab-` + labName + `-leaf1:6030
+    username: admin
+    password: admin
+    insecure: true
+subscriptions:
+  interfaces:
+    path: /interfaces/interface/state/counters
+    stream-mode: sample
+    sample-interval: 10s
+outputs:
+  prometheus:
+    type: prometheus
+    listen: 0.0.0.0:9804
+`
+}

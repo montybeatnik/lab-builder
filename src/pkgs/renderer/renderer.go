@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"text/template"
-
 	// "github.com/montybeatnik/arista-lab/laber/pkgs/arista"
 )
 

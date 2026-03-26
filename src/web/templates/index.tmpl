@@ -1,70 +1,348 @@
-{{ define "title" }}Containerlab Inspect{{ end }}
+{{ define "index_title" }}Lab Topology Studio{{ end }}
 
-{{ define "content" }}
-<h1>Containerlab Inspect</h1>
-<p class="muted">Base directory: <code id="baseDir">{{ .BaseDir }}</code></p>
-
-<form id="f">
-  <fieldset>
-    <legend>Inputs</legend>
-    <label>
-      Lab file
-      <input id="lab" type="text" value="lab.clab.yml" required>
-    </label>
-    <label>
-      Timeout (seconds)
-      <input id="timeout" type="number" min="1" max="60" value="15">
-    </label>
-    <label class="checkbox">
-      <input id="sudo" type="checkbox" checked> Use sudo (non-interactive)
-    </label>
-  </fieldset>
+{{ define "index_content" }}
+<header class="hero">
   <div>
-    <button id="runBtn" type="submit">Inspect</button>
-    <span id="spinner" class="spinner" hidden>Running…</span>
+    <p class="eyebrow">Arista Lab</p>
+    <h1>Topology Studio</h1>
+    <p class="subhead">Design a fabric, validate addressing, and get a ready-to-run plan for your lab.</p>
+    <nav class="page-nav">
+      <a href="/" class="active">Build</a>
+      <a href="/viewer">Lab Viewer</a>
+      <a href="/lab">Health</a>
+    </nav>
   </div>
-</form>
+  <div class="status-card">
+    <div class="status-line">
+      <span id="buildStatus" class="status status-idle">Waiting for validation</span>
+    </div>
+    <div class="status-meta">
+      <div>Base dir</div>
+      <code id="baseDir">{{ .BaseDir }}</code>
+    </div>
+    <div class="tour-inline">
+      <button id="guidedTourStart" class="ghost" type="button">Start Guided Tour</button>
+    </div>
+  </div>
+</header>
 
-<h2>Run commands on cEOS</h2>
-<form id="execForm">
-  <div class="row">
-    <label>Username <input id="euser" type="text" value="admin"></label>
-    <label>Password <input id="epass" type="password" value="admin"></label>
-    <label>Format
-      <select id="fmt">
-        <option value="json" selected>json</option>
-        <option value="text">text</option>
+<section class="grid">
+  <div class="panel" id="buildTopologyPanel">
+    <h2>Topology</h2>
+    <p class="muted">Pick a topology, shape the node counts, and wire custom links when needed.</p>
+    <div class="form-grid">
+      <label>
+        Topology
+        <select id="topology">
+          <option value="leaf-spine" selected>Leaf / Spine</option>
+          <option value="full-mesh">Full Mesh</option>
+          <option value="hub-spoke">Hub & Spoke</option>
+          <option value="custom">Custom</option>
+        </select>
+      </label>
+      <label>
+        Node type
+        <select id="nodeType">
+          <option value="arista" selected>Arista cEOS</option>
+          <option value="frr">FRR</option>
+        </select>
+      </label>
+      <label data-topo="leaf-spine">
+        Spines
+        <input id="spines" type="number" min="1" max="64" value="2">
+      </label>
+      <label data-topo="leaf-spine">
+        Leaves
+        <input id="leaves" type="number" min="1" max="256" value="4">
+      </label>
+      <label data-topo="full-mesh">
+        Nodes
+        <input id="meshNodes" type="number" min="2" max="256" value="6">
+      </label>
+      <label data-topo="hub-spoke">
+        Hubs
+        <input id="hubs" type="number" min="1" max="16" value="1">
+      </label>
+      <label data-topo="hub-spoke">
+        Spokes
+        <input id="spokes" type="number" min="1" max="256" value="6">
+      </label>
+      <label data-topo="custom">
+        Nodes
+        <input id="customNodes" type="number" min="1" max="256" value="6">
+      </label>
+      <label>
+        Edge nodes
+        <input id="edgeNodes" type="number" min="0" max="512" value="8">
+      </label>
+      <label class="inline-check">
+        Multi-homing
+        <span class="checkline">
+          <input id="multiHoming" type="checkbox">
+          <span>Connect edge1 to two upstream leaf nodes</span>
+        </span>
+      </label>
+    </div>
+
+    <div id="customLinks" class="custom-links" data-topo="custom">
+      <div class="links-header">
+        <h3>Custom links</h3>
+        <button id="addLinkBtn" class="ghost" type="button">Add link</button>
+      </div>
+      <div id="linkRows" class="link-rows"></div>
+    </div>
+  </div>
+
+  <div class="panel graph-panel" id="buildGraphPanel">
+    <div class="graph-header">
+      <h2>Graph preview</h2>
+      <button id="refreshGraph" class="ghost" type="button">Refresh</button>
+    </div>
+    <div class="graph-wrap">
+      <svg id="graph" viewBox="0 0 1000 520" role="img" aria-label="Topology graph preview"></svg>
+    </div>
+  <div class="legend">
+      <div><span class="swatch spine"></span>Spine / Hub</div>
+      <div><span class="swatch leaf"></span>Leaf / Spoke</div>
+      <div><span class="swatch mesh"></span>Mesh / Custom</div>
+      <div><span class="swatch edge"></span>Edge</div>
+    </div>
+  </div>
+</section>
+
+<details class="panel collapsible-panel address-panel" data-collapse-key="addressing" id="addressPanel">
+  <summary class="panel-summary">
+    <h2>Addressing</h2>
+  </summary>
+  <p class="muted">Provide a large infrastructure block; the system will divide it for loopbacks and point-to-point links.</p>
+  <div class="form-grid">
+    <label>
+      Infrastructure CIDR
+      <input id="infraCidr" type="text" placeholder="10.0.0.0/20" value="10.0.0.0/20">
+    </label>
+    <label>
+      Edge CIDR
+      <input id="edgeCidr" type="text" placeholder="172.16.0.0/24" value="172.16.0.0/24">
+    </label>
+  </div>
+</details>
+
+<details class="panel collapsible-panel traffic-panel" data-collapse-key="edge-traffic">
+  <summary class="panel-summary">
+    <div class="section-head">
+      <h2>Edge traffic profiles</h2>
+      <span class="pill planned">PLANNED</span>
+    </div>
+  </summary>
+  <p class="muted">Select the traffic types your edge clients will generate. This section is staged for a future rollout and does not affect generated lab output yet.</p>
+  <div class="traffic-grid">
+    <label class="traffic-card">
+      <input type="checkbox" id="trafficVoice" checked>
+      <div>
+        <strong>Voice</strong>
+        <p>UDP, steady 50 pps</p>
+        <input type="range" id="levelVoice" min="1" max="5" value="3">
+      </div>
+    </label>
+    <label class="traffic-card">
+      <input type="checkbox" id="trafficVideo" checked>
+      <div>
+        <strong>Video</strong>
+        <p>UDP, sustained throughput</p>
+        <input type="range" id="levelVideo" min="1" max="5" value="4">
+      </div>
+    </label>
+    <label class="traffic-card">
+      <input type="checkbox" id="trafficEmail">
+      <div>
+        <strong>Email</strong>
+        <p>TCP, bursty payloads</p>
+        <input type="range" id="levelEmail" min="1" max="5" value="2">
+      </div>
+    </label>
+    <label class="traffic-card">
+      <input type="checkbox" id="trafficWeb" checked>
+      <div>
+        <strong>Web</strong>
+        <p>TCP, frequent short flows</p>
+        <input type="range" id="levelWeb" min="1" max="5" value="3">
+      </div>
+    </label>
+  </div>
+</details>
+
+<details class="panel collapsible-panel" data-collapse-key="monitoring" id="monitoringPanel">
+  <summary class="panel-summary">
+    <h2>Monitoring</h2>
+  </summary>
+  <p class="muted">Deploy Prometheus/Grafana plus SNMP and gNMI collectors inside the lab.</p>
+  <div class="monitor-links">
+    <a id="grafanaLink" class="ghost monitor-link" href="#" target="_blank" rel="noopener noreferrer">Open Grafana</a>
+    <a id="prometheusLink" class="ghost monitor-link" href="#" target="_blank" rel="noopener noreferrer">Open Prometheus</a>
+  </div>
+  <div class="monitor-help">
+    <div class="monitor-help-card">
+      <strong>Grafana default credentials</strong>
+      <code>admin / admin</code>
+    </div>
+    <div class="monitor-help-card">
+      <strong>Starter Prometheus queries</strong>
+      <pre class="query-list">up{job="snmp"}
+up{job="gnmi"}
+rate(ifHCInOctets[5m])
+rate(ifHCOutOctets[5m])
+rate(ifInErrors[5m])
+rate(ifOutErrors[5m])</pre>
+    </div>
+  </div>
+  <div class="monitoring-grid">
+    <label class="monitoring-card">
+      <input type="checkbox" id="monSnmp" checked>
+      <div>
+        <strong>SNMP</strong>
+        <p>Enable SNMP on EOS and scrape via snmp_exporter.</p>
+      </div>
+    </label>
+    <label class="monitoring-card">
+      <input type="checkbox" id="monGnmi" checked>
+      <div>
+        <strong>gNMI</strong>
+        <p>Enable gNMI and collect metrics with gNMIc.</p>
+      </div>
+    </label>
+  </div>
+</details>
+
+<details class="panel collapsible-panel" data-collapse-key="edge-attachments" id="edgeAttachPanel">
+  <summary class="panel-summary">
+    <h2>Edge attachments</h2>
+  </summary>
+  <p class="muted">Choose where each edge node connects. Leave as auto to use round-robin.</p>
+  <div id="edgeAttachments" class="edge-attachments"></div>
+</details>
+
+<details class="panel collapsible-panel" open data-collapse-key="protocols" id="protocolsPanel">
+  <summary class="panel-summary">
+    <div class="section-head">
+      <h2>Protocols</h2>
+    </div>
+  </summary>
+  <div class="section-head panel-actions">
+    <button id="applyProtoDefaultsBtn" class="ghost" type="button">Apply defaults</button>
+  </div>
+  <p class="muted">Drag protocols into role lanes to apply them to devices.</p>
+  <div class="protocols">
+    <div class="protocol-palette">
+      <h3>Protocol palette</h3>
+      <div class="protocol-chips" id="protocolPalette">
+        <span class="protocol-chip" draggable="true" data-proto="bgp">BGP</span>
+        <span class="protocol-chip" draggable="true" data-proto="evpn">EVPN</span>
+        <span class="protocol-chip" draggable="true" data-proto="ospf">OSPF</span>
+        <span class="protocol-chip" draggable="true" data-proto="isis">ISIS</span>
+        <span class="protocol-chip" draggable="true" data-proto="vxlan">VXLAN</span>
+        <span class="protocol-chip" draggable="true" data-proto="mpls-ldp">MPLS LDP</span>
+        <span class="protocol-chip" draggable="true" data-proto="mpls-rsvp">MPLS RSVP</span>
+      </div>
+    </div>
+    <div class="protocol-roles">
+      <div class="protocol-lane" data-role="global">
+        <div class="lane-header">
+          <strong>Global</strong>
+          <span class="muted">Applied to all nodes</span>
+        </div>
+        <div class="lane-drop" data-drop="global"></div>
+      </div>
+      <div class="protocol-lane" data-role="spine">
+        <div class="lane-header">
+          <strong>Spine / Hub</strong>
+        </div>
+        <div class="lane-drop" data-drop="spine"></div>
+      </div>
+      <div class="protocol-lane" data-role="leaf">
+        <div class="lane-header">
+          <strong>Leaf / Spoke</strong>
+        </div>
+        <div class="lane-drop" data-drop="leaf"></div>
+      </div>
+      <div class="protocol-lane" data-role="mesh">
+        <div class="lane-header">
+          <strong>Mesh / Custom</strong>
+        </div>
+        <div class="lane-drop" data-drop="mesh"></div>
+      </div>
+    </div>
+  </div>
+</details>
+
+<details class="panel collapsible-panel validate-panel" open data-collapse-key="validation" id="validationPanel">
+  <summary class="panel-summary">
+    <div class="validate-header">
+      <h2>Validation</h2>
+    </div>
+  </summary>
+  <div class="validate-actions">
+    <button id="validateBtn" type="button">Validate &amp; Preview</button>
+    <button id="buildBtn" class="ghost" type="button">Generate Lab</button>
+    <button id="deployBtn" class="ghost" type="button">Deploy Lab</button>
+    <button id="destroyBtn" class="ghost" type="button">Destroy Lab</button>
+  </div>
+  <div class="form-grid">
+    <label>
+      Existing lab
+      <select id="builderLabSelect">
+        <option value="">Select a lab...</option>
+      </select>
+    </label>
+    <label>
+      Lab name
+      <input id="labName" type="text" value="arista-lab">
+    </label>
+    <label>
+      Overwrite existing
+      <select id="forceBuild">
+        <option value="false" selected>no</option>
+        <option value="true">yes</option>
+      </select>
+    </label>
+    <label>
+      Use sudo for deploy
+      <select id="deploySudo">
+        <option value="true" selected>yes</option>
+        <option value="false">no</option>
       </select>
     </label>
   </div>
-  <label>
-    Commands (one per line)
-    <textarea id="cmds" rows="4">show bgp evpn summary
-show vxlan vtep</textarea>
-  </label>
-  <button id="runCmdsBtn" type="submit">Run on all cEOS</button>
-</form>
+  <div id="deployStatus" class="status-bar" hidden>
+    <div class="status-bar-fill"></div>
+    <div class="status-bar-text">Deploying...</div>
+  </div>
+  <div id="checks" class="checks"></div>
+  <div id="buildResult" class="build-result" hidden></div>
+  <div id="deployResult" class="build-result" hidden></div>
+  <details class="plan">
+    <summary>Generated plan</summary>
+    <pre id="planJson"></pre>
+  </details>
+</details>
 
-<section id="execOut" hidden>
-  <h3>Command results</h3>
-  <div id="execResults"></div>
-</section>
-
-<h2>Health check</h2>
-<form id="healthForm">
-  <button id="healthBtn" type="submit">Run EVPN health</button>
-</form>
-<section id="healthOut" hidden>
-  <h3>Node health</h3>
-  <div id="healthResults"></div>
-</section>
-
-<section id="result" hidden>
-  <h2>Nodes (<span id="labKey"></span>)</h2>
-  <table id="nodesTbl">
-    <thead><tr><th>Name</th><th>Kind</th><th>Image</th><th>State</th><th>IPv4</th><th>Owner</th></tr></thead>
-    <tbody></tbody>
-  </table>
-  <details><summary>Raw JSON</summary><pre id="rawJson"></pre></details>
-</section>
+<details class="panel collapsible-panel" open data-collapse-key="config-preview">
+  <summary class="panel-summary">
+    <div class="validate-header">
+      <h2>Config Preview</h2>
+    </div>
+  </summary>
+  <div class="validate-actions">
+    <button id="renderConfigBtn" class="ghost" type="button">Render node config</button>
+  </div>
+  <p class="muted">Render a single node config from the current form state without generating the full lab.</p>
+  <div class="form-grid">
+    <label>
+      Node
+      <select id="configNode"></select>
+    </label>
+  </div>
+  <div id="configPreviewMeta" class="muted"></div>
+  <pre id="configPreview" class="result-block" hidden></pre>
+  <pre id="daemonsPreview" class="result-block" hidden></pre>
+</details>
 {{ end }}

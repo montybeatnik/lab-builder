@@ -159,6 +159,18 @@ say "Lab root at: $LAB_MOUNT"
 ls -la "$LAB_MOUNT" | sed -n '1,80p'
 
 ### ───────────────────────────
+### ensure gNMIc image matches host arch
+### ───────────────────────────
+say "Pre-pulling gNMIc image for host architecture..."
+GNMIC_IMAGE="ghcr.io/openconfig/gnmic:latest"
+ARCH="$(uname -m)"
+if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
+  sudo docker pull --platform=linux/arm64 "$GNMIC_IMAGE"
+else
+  sudo docker pull "$GNMIC_IMAGE"
+fi
+
+### ───────────────────────────
 ### Deploy (optional)
 ### ───────────────────────────
 if [ "${AUTO_DEPLOY}" = "1" ]; then
