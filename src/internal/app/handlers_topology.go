@@ -279,7 +279,7 @@ func runContainerlabLifecycle(ctx context.Context, action, labPath string, useSu
 
 func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan labplanner.LabPlan, monitoring MonitoringConfig) ([]string, error) {
 	var files []string
-	yamlBody := configgenerator.RenderContainerlabYAML(labName, model, plan.Nodes, plan.Links, plan.EdgeHosts, monitoring.SNMP || monitoring.GNMI)
+	yamlBody := configgenerator.RenderContainerlabYAML(labName, model, plan.Nodes, plan.Links, plan.EdgeHosts, monitoring.SNMP || monitoring.GNMI, monitoring.SNMP)
 	yamlPath := filepath.Join(root, "lab.clab.yml")
 	if err := os.WriteFile(yamlPath, []byte(yamlBody), 0o644); err != nil {
 		return files, err
@@ -323,6 +323,14 @@ func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan la
 				return files, err
 			}
 			files = append(files, daemonsPath)
+			if monitoring.SNMP {
+				snmpdPath := filepath.Join(cfgDir, node.Name+".snmpd.conf")
+				snmpdBody := configgenerator.FRRSNMPDConfig()
+				if err := os.WriteFile(snmpdPath, []byte(snmpdBody), 0o644); err != nil {
+					return files, err
+				}
+				files = append(files, snmpdPath)
+			}
 		}
 	}
 
@@ -371,21 +379,12 @@ func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan la
 		if err := os.MkdirAll(monDir, 0o755); err != nil {
 			return files, err
 		}
-		promCfg := configgenerator.PrometheusConfig(labName, monitoring.SNMP, monitoring.GNMI)
+		promCfg := configgenerator.PrometheusConfig(labName, plan.Nodes, monitoring.SNMP, monitoring.GNMI)
 		promPath := filepath.Join(monDir, "prometheus.yml")
 		if err := os.WriteFile(promPath, []byte(promCfg), 0o644); err != nil {
 			return files, err
 		}
 		files = append(files, promPath)
-
-		if monitoring.SNMP {
-			snmpCfg := configgenerator.SNMPConfig()
-			snmpPath := filepath.Join(monDir, "snmp.yml")
-			if err := os.WriteFile(snmpPath, []byte(snmpCfg), 0o644); err != nil {
-				return files, err
-			}
-			files = append(files, snmpPath)
-		}
 
 		grafanaCfg := configgenerator.GrafanaDatasource()
 		grafanaPath := filepath.Join(monDir, "grafana-datasources.yml")

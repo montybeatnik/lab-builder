@@ -123,8 +123,11 @@
 </section>
 
 <section class="panel traffic-panel">
-  <h2>Edge traffic profiles</h2>
-  <p class="muted">Select the traffic types your edge clients will generate.</p>
+  <div class="section-head">
+    <h2>Edge traffic profiles</h2>
+    <span class="pill planned">PLANNED</span>
+  </div>
+  <p class="muted">Select the traffic types your edge clients will generate. This section is staged for a future rollout and does not affect generated lab output yet.</p>
   <div class="traffic-grid">
     <label class="traffic-card">
       <input type="checkbox" id="trafficVoice" checked>
@@ -164,6 +167,25 @@
 <section class="panel">
   <h2>Monitoring</h2>
   <p class="muted">Deploy Prometheus/Grafana plus SNMP and gNMI collectors inside the lab.</p>
+  <div class="monitor-links">
+    <a id="grafanaLink" class="ghost monitor-link" href="#" target="_blank" rel="noopener noreferrer">Open Grafana</a>
+    <a id="prometheusLink" class="ghost monitor-link" href="#" target="_blank" rel="noopener noreferrer">Open Prometheus</a>
+  </div>
+  <div class="monitor-help">
+    <div class="monitor-help-card">
+      <strong>Grafana default credentials</strong>
+      <code>admin / admin</code>
+    </div>
+    <div class="monitor-help-card">
+      <strong>Starter Prometheus queries</strong>
+      <pre class="query-list">up{job="snmp"}
+up{job="gnmi"}
+rate(ifHCInOctets[5m])
+rate(ifHCOutOctets[5m])
+rate(ifInErrors[5m])
+rate(ifOutErrors[5m])</pre>
+    </div>
+  </div>
   <div class="monitoring-grid">
     <label class="monitoring-card">
       <input type="checkbox" id="monSnmp" checked>
@@ -189,7 +211,10 @@
 </section>
 
 <section class="panel">
-  <h2>Protocols</h2>
+  <div class="section-head">
+    <h2>Protocols</h2>
+    <button id="applyProtoDefaultsBtn" class="ghost" type="button">Apply defaults</button>
+  </div>
   <p class="muted">Drag protocols into role lanes to apply them to devices.</p>
   <div class="protocols">
     <div class="protocol-palette">

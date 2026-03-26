@@ -26,6 +26,18 @@
     });
   }
 
+  function setMonitoringLinks() {
+    const host = window.location.hostname || 'localhost';
+    const grafana = $('grafanaLink');
+    const prometheus = $('prometheusLink');
+    if (grafana) {
+      grafana.href = `http://${host}:3000`;
+    }
+    if (prometheus) {
+      prometheus.href = `http://${host}:9090`;
+    }
+  }
+
   async function loadBuilderLabs() {
     const select = $('builderLabSelect');
     if (!select) return;
@@ -69,6 +81,92 @@
       const allowed = el.getAttribute('data-topo').split(' ');
       el.style.display = allowed.includes(topo) ? '' : 'none';
     });
+  }
+
+  function protocolLaneConfig(topo) {
+    if (topo === 'leaf-spine') {
+      return {
+        visible: ['global', 'spine', 'leaf'],
+        laneToRoles: { global: ['global'], spine: ['spine'], leaf: ['leaf'] },
+        laneLabels: { spine: 'Spine', leaf: 'Leaf' }
+      };
+    }
+    if (topo === 'hub-spoke') {
+      return {
+        visible: ['global', 'spine', 'leaf'],
+        laneToRoles: { global: ['global'], spine: ['hub'], leaf: ['spoke'] },
+        laneLabels: { spine: 'Hub', leaf: 'Spoke' }
+      };
+    }
+    if (topo === 'full-mesh') {
+      return {
+        visible: ['global', 'mesh'],
+        laneToRoles: { global: ['global'], mesh: ['mesh'] },
+        laneLabels: { mesh: 'Mesh' }
+      };
+    }
+    return {
+      visible: ['global', 'mesh'],
+      laneToRoles: { global: ['global'], mesh: ['custom'] },
+      laneLabels: { mesh: 'Custom' }
+    };
+  }
+
+  function updateProtocolLanes() {
+    const topo = $('topology').value;
+    const cfg = protocolLaneConfig(topo);
+    document.querySelectorAll('.protocol-lane').forEach(lane => {
+      const role = lane.getAttribute('data-role');
+      lane.style.display = cfg.visible.includes(role) ? '' : 'none';
+    });
+    const spineLabel = document.querySelector('.protocol-lane[data-role="spine"] .lane-header strong');
+    const leafLabel = document.querySelector('.protocol-lane[data-role="leaf"] .lane-header strong');
+    const meshLabel = document.querySelector('.protocol-lane[data-role="mesh"] .lane-header strong');
+    if (spineLabel && cfg.laneLabels.spine) spineLabel.textContent = cfg.laneLabels.spine;
+    if (leafLabel && cfg.laneLabels.leaf) leafLabel.textContent = cfg.laneLabels.leaf;
+    if (meshLabel && cfg.laneLabels.mesh) meshLabel.textContent = cfg.laneLabels.mesh;
+  }
+
+  function protocolDefaults(topo) {
+    if (topo === 'leaf-spine') {
+      return {
+        global: ['bgp'],
+        spine: ['evpn'],
+        leaf: ['evpn', 'vxlan']
+      };
+    }
+    if (topo === 'hub-spoke') {
+      return {
+        global: ['bgp'],
+        spine: ['ospf'],
+        leaf: ['ospf']
+      };
+    }
+    if (topo === 'full-mesh') {
+      return {
+        global: ['ospf'],
+        mesh: []
+      };
+    }
+    return {
+      global: [],
+      mesh: []
+    };
+  }
+
+  function setLaneProtocols(laneRole, protos) {
+    const lane = document.querySelector(`.lane-drop[data-drop="${laneRole}"]`);
+    if (!lane) return;
+    lane.innerHTML = '';
+    (protos || []).forEach(proto => addProtocolPill(lane, proto));
+  }
+
+  function applyProtocolDefaults() {
+    const defaults = protocolDefaults($('topology').value);
+    setLaneProtocols('global', defaults.global || []);
+    setLaneProtocols('spine', defaults.spine || []);
+    setLaneProtocols('leaf', defaults.leaf || []);
+    setLaneProtocols('mesh', defaults.mesh || []);
   }
 
   function currentNodeNames() {
@@ -540,13 +638,19 @@
   }
 
   function collectProtocols() {
+    const topo = $('topology').value;
+    const cfg = protocolLaneConfig(topo);
     const roles = {};
-    document.querySelectorAll('.lane-drop').forEach(lane => {
-      const role = lane.getAttribute('data-drop');
-      const items = Array.from(lane.querySelectorAll('.protocol-pill')).map(p => p.getAttribute('data-proto'));
-      roles[role] = items.filter(Boolean);
+    cfg.visible.forEach(laneRole => {
+      const lane = document.querySelector(`.lane-drop[data-drop="${laneRole}"]`);
+      if (!lane) return;
+      const items = Array.from(lane.querySelectorAll('.protocol-pill')).map(p => p.getAttribute('data-proto')).filter(Boolean);
+      const targets = cfg.laneToRoles[laneRole] || [];
+      targets.forEach(target => {
+        roles[target] = items;
+      });
     });
-    return { global: roles.global || [], roles: roles };
+    return { global: roles.global || [], roles };
   }
 
   function collectEdgeLinks() {
@@ -656,6 +760,8 @@
   function attachListeners() {
     $('topology').addEventListener('change', () => {
       showTopoFields();
+      updateProtocolLanes();
+      applyProtocolDefaults();
       syncCustomLinks();
       renderGraph();
       renderEdgeAttachments();
@@ -686,6 +792,7 @@
     $('deployBtn').addEventListener('click', deployLab);
     $('destroyBtn').addEventListener('click', destroyLab);
     $('renderConfigBtn').addEventListener('click', renderConfigPreview);
+    $('applyProtoDefaultsBtn').addEventListener('click', applyProtocolDefaults);
     $('builderLabSelect').addEventListener('change', syncSelectedBuilderLab);
     $('labName').addEventListener('input', syncBuilderLabSelection);
   }
@@ -758,6 +865,8 @@
   document.addEventListener('DOMContentLoaded', () => {
     if (!$('topology')) return;
     showTopoFields();
+    updateProtocolLanes();
+    applyProtocolDefaults();
     addLinkRow('node1', 'node2');
     attachListeners();
     renderGraph();
@@ -765,6 +874,7 @@
     renderEdgeAttachments();
     updateConfigNodeOptions();
     loadBuilderLabs();
+    setMonitoringLinks();
 
     const savedChecks = sessionStorage.getItem('builder_checks');
     if (savedChecks) {

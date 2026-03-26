@@ -135,6 +135,12 @@ h1 {
 }
 
 .panel h2 { margin-top: 0; }
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
 
 .muted { color: var(--muted); }
 
@@ -288,6 +294,11 @@ button.ghost {
 .pill.pass { background: rgba(143, 227, 198, 0.6); }
 .pill.warn { background: rgba(255, 227, 122, 0.6); }
 .pill.fail { background: rgba(255, 122, 77, 0.6); }
+.pill.planned {
+  background: rgba(147, 197, 253, 0.45);
+  color: #1b4b8f;
+  font-weight: 700;
+}
 
 .plan { margin-top: 1.2rem; }
 .build-result {
@@ -476,6 +487,44 @@ pre {
   gap: 0.9rem;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   margin-top: 1rem;
+}
+
+.monitor-links {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-top: 0.9rem;
+}
+
+a.monitor-link {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.monitor-help {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-top: 0.9rem;
+}
+
+.monitor-help-card {
+  border: 1px solid var(--stroke);
+  border-radius: 0.9rem;
+  background: #fffdf9;
+  padding: 0.8rem 0.9rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.query-list {
+  margin: 0;
+  background: #121316;
+  color: #e8edf5;
+  border-radius: 0.7rem;
+  padding: 0.7rem 0.8rem;
+  font-size: 0.82rem;
 }
 
 .monitoring-card {

@@ -185,7 +185,7 @@ func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplann
 	return buf.String(), nil
 }
 
-func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, nodes []labplanner.NodePlan, links []labplanner.LinkAssigned, edgeHosts []labplanner.EdgeHost, monitoring bool) string {
+func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, nodes []labplanner.NodePlan, links []labplanner.LinkAssigned, edgeHosts []labplanner.EdgeHost, monitoring, snmpEnabled bool) string {
 	var b strings.Builder
 	nodeMap := map[string]labplanner.NodePlan{}
 	for _, node := range nodes {
@@ -202,8 +202,16 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, node
 			b.WriteString("      binds:\n")
 			b.WriteString("        - configs/" + node.Name + ".cfg:/etc/frr/frr.conf\n")
 			b.WriteString("        - configs/" + node.Name + ".daemons:/etc/frr/daemons\n")
+			if snmpEnabled {
+				b.WriteString("        - configs/" + node.Name + ".snmpd.conf:/etc/snmp/snmpd.conf\n")
+			}
 			if planNode, ok := nodeMap[node.Name]; ok {
 				execLines := frrStartupExec(planNode, nodes, links)
+				if snmpEnabled {
+					// Start snmpd and self-install it when the FRR image variant does
+					// not include net-snmp by default.
+					execLines = append(execLines, "sh -lc 'if ! command -v snmpd >/dev/null 2>&1; then if command -v apt-get >/dev/null 2>&1; then apt-get update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y snmpd >/dev/null 2>&1; elif command -v apk >/dev/null 2>&1; then apk add --no-cache net-snmp >/dev/null 2>&1; fi; fi; if command -v snmpd >/dev/null 2>&1; then snmpd -f -Lo -C -c /etc/snmp/snmpd.conf & else echo snmpd-not-found; fi'")
+				}
 				if len(execLines) > 0 {
 					b.WriteString("      exec:\n")
 					for _, line := range execLines {
@@ -258,8 +266,6 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, node
 		b.WriteString("    snmp-exporter:\n")
 		b.WriteString("      kind: linux\n")
 		b.WriteString("      image: prom/snmp-exporter:v0.26.0\n")
-		b.WriteString("      binds:\n")
-		b.WriteString("        - monitoring/snmp.yml:/etc/snmp_exporter/snmp.yml\n")
 		b.WriteString("    gnmic:\n")
 		b.WriteString("      kind: linux\n")
 		b.WriteString("      image: ghcr.io/openconfig/gnmic:latest\n")
@@ -432,19 +438,24 @@ func yesNo(v bool) string {
 	return "no"
 }
 
-func PrometheusConfig(labName string, snmpEnabled, gnmiEnabled bool) string {
+func PrometheusConfig(labName string, nodes []labplanner.NodePlan, snmpEnabled, gnmiEnabled bool) string {
 	var b strings.Builder
 	b.WriteString("global:\n  scrape_interval: 15s\n")
 	b.WriteString("scrape_configs:\n")
 	if snmpEnabled {
+		targets := snmpTargets(labName, nodes)
 		b.WriteString("  - job_name: \"snmp\"\n")
+		b.WriteString("    scrape_interval: 30s\n")
+		b.WriteString("    scrape_timeout: 25s\n")
 		b.WriteString("    metrics_path: /snmp\n")
 		b.WriteString("    params:\n")
-		b.WriteString("      module: [\"eos\"]\n")
+		b.WriteString("      module: [\"if_mib\"]\n")
 		b.WriteString("      auth: [\"public_v2\"]\n")
 		b.WriteString("    static_configs:\n")
 		b.WriteString("      - targets:\n")
-		b.WriteString("          - clab-" + labName + "-leaf1\n")
+		for _, target := range targets {
+			b.WriteString("          - " + target + "\n")
+		}
 		b.WriteString("    relabel_configs:\n")
 		b.WriteString("      - source_labels: [__address__]\n")
 		b.WriteString("        target_label: __param_target\n")
@@ -462,6 +473,26 @@ func PrometheusConfig(labName string, snmpEnabled, gnmiEnabled bool) string {
 	return b.String()
 }
 
+func snmpTargets(labName string, nodes []labplanner.NodePlan) []string {
+	var targets []string
+	seen := map[string]bool{}
+	for _, node := range nodes {
+		if !strings.EqualFold(node.Role, "leaf") {
+			continue
+		}
+		target := "clab-" + labName + "-" + node.Name
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
+		targets = append(targets, target)
+	}
+	if len(targets) == 0 {
+		return []string{"clab-" + labName + "-leaf1"}
+	}
+	return targets
+}
+
 func SNMPConfig() string {
 	return `
 auths:
@@ -469,14 +500,14 @@ auths:
     version: 2
     community: public
 modules:
-  eos:
+  if_mib:
     walk:
       - 1.3.6.1.2.1.2
       - 1.3.6.1.2.1.31
     metrics:
       - name: ifHCInOctets
         oid: 1.3.6.1.2.1.31.1.1.1.6
-        type: counter64
+        type: counter
         help: "Total octets received on the interface."
         indexes:
           - labelname: ifIndex
@@ -488,7 +519,7 @@ modules:
             type: DisplayString
       - name: ifHCOutOctets
         oid: 1.3.6.1.2.1.31.1.1.1.10
-        type: counter64
+        type: counter
         help: "Total octets transmitted on the interface."
         indexes:
           - labelname: ifIndex
@@ -522,6 +553,16 @@ modules:
             labelname: ifName
             oid: 1.3.6.1.2.1.31.1.1.1.1
             type: DisplayString
+`
+}
+
+func FRRSNMPDConfig() string {
+	return `
+agentaddress udp:161,udp6:[::]:161
+rocommunity public
+rocommunity6 public
+sysLocation lab
+sysContact admin
 `
 }
 
