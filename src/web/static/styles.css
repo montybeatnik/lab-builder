@@ -147,6 +147,22 @@ h1 {
 }
 
 label { display: grid; gap: 0.4rem; font-weight: 600; min-width: 0; }
+.inline-check .checkline {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 42px;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--stroke);
+  border-radius: 0.9rem;
+  background: #fdfbf8;
+  font-weight: 500;
+}
+.inline-check input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  transform: scale(1.1);
+}
 input, select, textarea {
   border: 1px solid var(--stroke);
   border-radius: 0.9rem;
@@ -204,12 +220,14 @@ button.ghost {
 .swatch.spine { background: var(--sun); }
 .swatch.leaf { background: var(--mint); }
 .swatch.mesh { background: var(--sky); }
+.swatch.edge { background: var(--accent); }
 
 .edge { stroke: #a8a19a; stroke-width: 2; opacity: 0.7; }
 .node circle { stroke: #3a3430; stroke-width: 1.5; }
 .node.spine circle { fill: var(--sun); }
 .node.leaf circle { fill: var(--mint); }
 .node.mesh circle { fill: var(--sky); }
+.node.edge circle { fill: var(--accent); }
 .node text { font-size: 0.75rem; fill: #423f3c; }
 
 .custom-links { margin-top: 1.2rem; }

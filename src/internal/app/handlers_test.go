@@ -1,10 +1,12 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -241,5 +243,90 @@ func TestLabs_IncludesFilesystemLabsWithoutIndexEntry(t *testing.T) {
 	}
 	if len(resp.Labs) != 1 || resp.Labs[0].Name != "older-lab" {
 		t.Fatalf("expected filesystem lab in response: %#v", resp.Labs)
+	}
+}
+
+func TestLabs_FallsBackWhenIndexIsNotUsable(t *testing.T) {
+	base := t.TempDir()
+	if err := os.WriteFile(filepath.Join(base, ".lab-index.sqlite"), []byte("not-a-sqlite-db"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	labDir := filepath.Join(base, "frr-lab")
+	if err := os.MkdirAll(labDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(labDir, "lab.clab.yml"), []byte("name: frr-lab\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewHandlers(Config{BaseDir: base}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/labs", nil)
+	rec := httptest.NewRecorder()
+	h.Labs(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var resp LabsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.OK || len(resp.Labs) != 1 || resp.Labs[0].Name != "frr-lab" {
+		t.Fatalf("expected filesystem fallback labs, got %#v", resp)
+	}
+}
+
+func TestTopologyDestroy_MethodNotAllowed(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/topology/destroy", nil)
+	rec := httptest.NewRecorder()
+	h.TopologyDestroy(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected %d got %d", http.StatusMethodNotAllowed, rec.Code)
+	}
+}
+
+func TestTopologyDestroy_RunsContainerlabDestroy(t *testing.T) {
+	base := t.TempDir()
+	labDir := filepath.Join(base, "demo")
+	if err := os.MkdirAll(labDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(labDir, "lab.clab.yml"), []byte("name: demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origExec := execCommandContext
+	var gotCommand []string
+	execCommandContext = func(ctx context.Context, command string, args ...string) *exec.Cmd {
+		gotCommand = append([]string{command}, args...)
+		return exec.CommandContext(ctx, "sh", "-c", "printf 'destroy ok'")
+	}
+	defer func() { execCommandContext = origExec }()
+
+	h := NewHandlers(Config{BaseDir: base}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/topology/destroy", strings.NewReader(`{"labName":"demo","sudo":true}`))
+	rec := httptest.NewRecorder()
+	h.TopologyDestroy(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var resp DeployResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected ok response: %#v", resp)
+	}
+	if !strings.Contains(resp.Output, "destroy ok") {
+		t.Fatalf("expected destroy output, got %#v", resp)
+	}
+	if len(gotCommand) == 0 || gotCommand[0] != "sudo" {
+		t.Fatalf("expected sudo-wrapped command, got %#v", gotCommand)
+	}
+	joined := strings.Join(gotCommand, " ")
+	if !strings.Contains(joined, "containerlab destroy") {
+		t.Fatalf("expected containerlab destroy invocation, got %q", joined)
 	}
 }

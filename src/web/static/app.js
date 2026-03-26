@@ -7,6 +7,45 @@
   const topoSelectors = ['leaf-spine', 'full-mesh', 'hub-spoke', 'custom'];
   const svgNS = 'http://www.w3.org/2000/svg';
 
+  function populateLabSelect(select, labs) {
+    if (!select) return;
+    if (!labs || labs.length === 0) {
+      select.innerHTML = '<option value="">No labs found</option>';
+      return;
+    }
+    select.innerHTML = '<option value="">Select a lab...</option>';
+    labs.forEach(lab => {
+      const option = document.createElement('option');
+      option.value = lab.name;
+      option.textContent = `${lab.name} (${lab.path})`;
+      select.appendChild(option);
+    });
+  }
+
+  async function loadBuilderLabs() {
+    const select = $('builderLabSelect');
+    if (!select) return;
+    const res = await fetch('/labs');
+    const data = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
+    populateLabSelect(select, data.ok ? (data.labs || []) : null);
+    const currentLab = $('labName').value.trim();
+    if (currentLab) {
+      select.value = currentLab;
+    }
+  }
+
+  function syncSelectedBuilderLab() {
+    const select = $('builderLabSelect');
+    if (!select || !select.value) return;
+    $('labName').value = select.value;
+  }
+
+  function syncBuilderLabSelection() {
+    const select = $('builderLabSelect');
+    if (!select) return;
+    select.value = $('labName').value.trim();
+  }
+
   function showTopoFields() {
     const topo = $('topology').value;
     document.querySelectorAll('[data-topo]').forEach(el => {
@@ -41,6 +80,11 @@
     return Array.from({ length: nodes }, (_, i) => `node${i + 1}`);
   }
 
+  function currentEdgeNames() {
+    const edges = numberVal('edgeNodes', 0);
+    return Array.from({ length: edges }, (_, i) => `edge${i + 1}`);
+  }
+
   function updateConfigNodeOptions() {
     const select = $('configNode');
     if (!select) return;
@@ -60,7 +104,7 @@
 
   function buildModelFromInputs() {
     const topo = $('topology').value;
-    const nodes = currentNodeNames();
+    const nodes = [...currentNodeNames(), ...currentEdgeNames()];
     const links = [];
 
     if (topo === 'leaf-spine') {
@@ -94,6 +138,8 @@
         }
       });
     }
+
+    collectPreviewEdgeLinks().forEach(link => links.push(link));
 
     return { topology: topo, nodes, links };
   }
@@ -154,6 +200,10 @@
       for (let i = 0; i < leaves; i++) {
         layout[`leaf${i + 1}`] = { x: leafXs[i], y: 380, role: 'leaf' };
       }
+      const edgeXs = spreadX(currentEdgeNames().length, width, 140);
+      currentEdgeNames().forEach((name, i) => {
+        layout[name] = { x: edgeXs[i], y: 470, role: 'edge' };
+      });
     } else if (topo === 'hub-spoke') {
       const hubs = numberVal('hubs', 1);
       const spokes = numberVal('spokes', 6);
@@ -171,6 +221,26 @@
           role: 'leaf'
         };
       }
+      const edgeXs = spreadX(currentEdgeNames().length, width, 140);
+      currentEdgeNames().forEach((name, i) => {
+        layout[name] = { x: edgeXs[i], y: height - 50, role: 'edge' };
+      });
+    } else if (topo === 'custom') {
+      const nodes = currentNodeNames();
+      const radius = Math.min(width, height) / 2.4;
+      const center = { x: width / 2, y: height / 2 - 10 };
+      nodes.forEach((name, i) => {
+        const angle = (Math.PI * 2 * i) / Math.max(nodes.length, 1);
+        layout[name] = {
+          x: center.x + radius * Math.cos(angle),
+          y: center.y + radius * Math.sin(angle),
+          role: 'mesh'
+        };
+      });
+      const edgeXs = spreadX(currentEdgeNames().length, width, 140);
+      currentEdgeNames().forEach((name, i) => {
+        layout[name] = { x: edgeXs[i], y: height - 50, role: 'edge' };
+      });
     } else {
       const nodes = currentNodeNames();
       const radius = Math.min(width, height) / 2.4;
@@ -183,8 +253,53 @@
           role: 'mesh'
         };
       });
+      const edgeXs = spreadX(currentEdgeNames().length, width, 140);
+      currentEdgeNames().forEach((name, i) => {
+        layout[name] = { x: edgeXs[i], y: height - 50, role: 'edge' };
+      });
     }
     return layout;
+  }
+
+  function shouldPreviewMultiHoming() {
+    return $('topology').value === 'leaf-spine'
+      && $('multiHoming').checked
+      && numberVal('leaves', 0) >= 3;
+  }
+
+  function collectPreviewEdgeLinks() {
+    const topology = $('topology').value;
+    const infraNodes = currentNodeNames();
+    const edgeNames = currentEdgeNames();
+    if (edgeNames.length === 0 || infraNodes.length === 0) {
+      return [];
+    }
+
+    if (topology === 'leaf-spine') {
+      const leaves = Array.from({ length: numberVal('leaves', 0) }, (_, i) => `leaf${i + 1}`);
+      const links = [];
+      edgeNames.forEach((edge, index) => {
+        if (shouldPreviewMultiHoming() && edge === 'edge1') {
+          links.push({ a: edge, b: 'leaf1' });
+          links.push({ a: edge, b: 'leaf2' });
+          return;
+        }
+        let targetIndex = index;
+        if (shouldPreviewMultiHoming() && index > 0 && leaves.length > 2) {
+          targetIndex = index + 1;
+        }
+        const target = leaves[targetIndex % Math.max(leaves.length, 1)];
+        if (target) {
+          links.push({ a: edge, b: target });
+        }
+      });
+      return links;
+    }
+
+    return edgeNames.map((edge, index) => ({
+      a: edge,
+      b: infraNodes[index % infraNodes.length]
+    }));
   }
 
   function spreadX(count, width, margin) {
@@ -245,6 +360,7 @@
       hubCount: numberVal('hubs', 0),
       spokeCount: numberVal('spokes', 0),
       edgeNodes: numberVal('edgeNodes', 0),
+      multiHoming: $('multiHoming').checked,
       infraCidr: $('infraCidr').value.trim(),
       edgeCidr: $('edgeCidr').value.trim(),
       customLinks: collectCustomLinks(),
@@ -310,6 +426,7 @@
     result.hidden = false;
     sessionStorage.setItem('builder_build_result', result.textContent);
     sessionStorage.setItem('builder_build_ok', 'true');
+    loadBuilderLabs();
   }
 
   async function deployLab() {
@@ -348,6 +465,46 @@
     result.hidden = false;
     sessionStorage.setItem('builder_deploy_result', result.textContent);
     sessionStorage.setItem('builder_deploy_ok', 'true');
+    loadBuilderLabs();
+  }
+
+  async function destroyLab() {
+    const payload = {
+      labName: $('labName').value.trim(),
+      sudo: $('deploySudo').value === 'true'
+    };
+    const result = $('deployResult');
+    const status = $('deployStatus');
+    result.hidden = true;
+    result.textContent = '';
+    status.hidden = false;
+    status.className = 'status-bar running';
+    status.querySelector('.status-bar-text').textContent = 'Destroying...';
+
+    const res = await fetch('/topology/destroy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
+    if (!data.ok) {
+      status.className = 'status-bar fail';
+      status.querySelector('.status-bar-text').textContent = 'Destroy failed';
+      result.className = 'build-result fail';
+      result.textContent = (data.error || 'destroy failed') + (data.output ? `\n${data.output}` : '');
+      result.hidden = false;
+      sessionStorage.setItem('builder_deploy_result', result.textContent);
+      sessionStorage.setItem('builder_deploy_ok', 'false');
+      return;
+    }
+    status.className = 'status-bar pass';
+    status.querySelector('.status-bar-text').textContent = 'Destroy complete';
+    result.className = 'build-result pass';
+    result.textContent = `Destroy finished for ${data.path}\n${data.output || ''}`.trim();
+    result.hidden = false;
+    sessionStorage.setItem('builder_deploy_result', result.textContent);
+    sessionStorage.setItem('builder_deploy_ok', 'true');
+    loadBuilderLabs();
   }
 
   function collectCustomLinks() {
@@ -492,6 +649,10 @@
         updateConfigNodeOptions();
       });
     });
+    $('multiHoming').addEventListener('change', () => {
+      renderGraph();
+      renderEdgeAttachments();
+    });
     $('addLinkBtn').addEventListener('click', () => {
       const nodes = currentNodeNames();
       addLinkRow(nodes[0], nodes[1] || nodes[0]);
@@ -501,7 +662,10 @@
     $('validateBtn').addEventListener('click', validateTopology);
     $('buildBtn').addEventListener('click', buildLab);
     $('deployBtn').addEventListener('click', deployLab);
+    $('destroyBtn').addEventListener('click', destroyLab);
     $('renderConfigBtn').addEventListener('click', renderConfigPreview);
+    $('builderLabSelect').addEventListener('change', syncSelectedBuilderLab);
+    $('labName').addEventListener('input', syncBuilderLabSelection);
   }
 
   function renderEdgeAttachments() {
@@ -512,6 +676,10 @@
     wrap.innerHTML = '';
     if (edges <= 0) {
       wrap.innerHTML = '<div class="muted">No edge nodes.</div>';
+      return;
+    }
+    if ($('multiHoming').checked) {
+      wrap.innerHTML = '<div class="muted">Multi-homing is enabled. Use at least 3 leaves; edge1 will connect to two upstream leaf nodes.</div>';
       return;
     }
     for (let i = 1; i <= edges; i++) {
@@ -574,6 +742,7 @@
     setupProtocolDrag();
     renderEdgeAttachments();
     updateConfigNodeOptions();
+    loadBuilderLabs();
 
     const savedChecks = sessionStorage.getItem('builder_checks');
     if (savedChecks) {

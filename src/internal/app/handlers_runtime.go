@@ -467,17 +467,17 @@ func (h *Handlers) Labs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	db, err := labstore.OpenLabDB(h.cfg.BaseDir)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, LabsResponse{OK: false, Error: err.Error()})
-		return
-	}
-	defer db.Close()
-
-	labs, err := labstore.ListLabs(db)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, LabsResponse{OK: false, Error: err.Error()})
-		return
+	var (
+		labs []labstore.LabRecord
+		err  error
+	)
+	db, dbErr := labstore.OpenLabDB(h.cfg.BaseDir)
+	if dbErr == nil {
+		defer db.Close()
+		labs, err = labstore.ListLabs(db)
+		if err != nil {
+			labs = nil
+		}
 	}
 	labs, err = mergeLabsWithFilesystem(h.cfg.BaseDir, labs)
 	if err != nil {

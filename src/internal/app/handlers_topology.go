@@ -17,6 +17,10 @@ import (
 	"github.com/montybeatnik/arista-lab/laber/labstore"
 )
 
+// execCommandContext is injected in tests so lifecycle handlers can be covered
+// without needing a real containerlab binary on the test host.
+var execCommandContext = exec.CommandContext
+
 func (h *Handlers) TopologyValidate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -164,7 +168,7 @@ func (h *Handlers) TopologyRenderConfig(w http.ResponseWriter, r *http.Request) 
 	}
 
 	tplPath := configTemplatePath(node.NodeType)
-	body, err := configgenerator.RenderNodeConfig(tplPath, node, nodeLinks[node.Name], nodeMap, req.Monitoring.SNMP, req.Monitoring.GNMI)
+	body, err := configgenerator.RenderNodeConfig(tplPath, node, nodeLinks[node.Name], plan.Links, nodeMap, req.Monitoring.SNMP, req.Monitoring.GNMI)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, RenderConfigResponse{OK: false, Error: err.Error(), Warnings: warns})
 		return
@@ -209,25 +213,68 @@ func (h *Handlers) TopologyDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	args := []string{"containerlab", "deploy", "-t", labPath, "--reconfigure"}
-	if req.UseSudo {
-		args = append([]string{"sudo", "-E", "-n"}, args...)
-	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
-
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	clabBase := "/home/ubuntu/.clab-runs"
-	_ = os.MkdirAll(clabBase, 0o755)
-	cmd.Env = append(os.Environ(), "CLAB_LABDIR_BASE="+clabBase)
-	output, err := cmd.CombinedOutput()
+	output, err := runContainerlabLifecycle(ctx, "deploy", labPath, req.UseSudo)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: err.Error(), Output: string(output), Path: labPath})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, DeployResponse{OK: true, Output: string(output), Path: labPath})
+}
+
+func (h *Handlers) TopologyDestroy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req DestroyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "bad JSON: " + err.Error()})
+		return
+	}
+	labName := strings.TrimSpace(req.LabName)
+	if labName == "" {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "lab name is required"})
+		return
+	}
+	if !isSafeName(labName) {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "lab name must be alphanumeric, dash, or underscore"})
+		return
+	}
+
+	labPath := filepath.Join(h.cfg.BaseDir, labName, "lab.clab.yml")
+	if _, err := os.Stat(labPath); err != nil {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "lab file not found at " + labPath})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+	output, err := runContainerlabLifecycle(ctx, "destroy", labPath, req.UseSudo)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: err.Error(), Output: string(output), Path: labPath})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, DeployResponse{OK: true, Output: string(output), Path: labPath})
+}
+
+func runContainerlabLifecycle(ctx context.Context, action, labPath string, useSudo bool) ([]byte, error) {
+	args := []string{"containerlab", action, "-t", labPath}
+	if action == "deploy" {
+		args = append(args, "--reconfigure")
+	}
+	if useSudo {
+		args = append([]string{"sudo", "-E", "-n"}, args...)
+	}
+
+	cmd := execCommandContext(ctx, args[0], args[1:]...)
+	clabBase := "/home/ubuntu/.clab-runs"
+	_ = os.MkdirAll(clabBase, 0o755)
+	cmd.Env = append(os.Environ(), "CLAB_LABDIR_BASE="+clabBase)
+	return cmd.CombinedOutput()
 }
 
 func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan labplanner.LabPlan, monitoring MonitoringConfig) ([]string, error) {
@@ -260,7 +307,7 @@ func writeLabFiles(root, labName string, model labplanner.TopologyModel, plan la
 		}
 		path := filepath.Join(cfgDir, node.Name+".cfg")
 		tplPath := configTemplatePath(node.NodeType)
-		body, err := configgenerator.RenderNodeConfig(tplPath, node, nodeLinks[node.Name], nodeMap, monitoring.SNMP, monitoring.GNMI)
+		body, err := configgenerator.RenderNodeConfig(tplPath, node, nodeLinks[node.Name], plan.Links, nodeMap, monitoring.SNMP, monitoring.GNMI)
 		if err != nil {
 			return files, err
 		}
@@ -392,9 +439,13 @@ func BuildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string
 		warns = append(warns, "topology not set; defaulting to leaf-spine")
 	}
 	model := labplanner.TopologyModel{
-		Topology:  topology,
-		EdgeNodes: maxInt(req.EdgeNodes, 0),
-		Protocols: labplanner.NormalizeProtocols(req.Protocols),
+		Topology:   topology,
+		EdgeNodes:  maxInt(req.EdgeNodes, 0),
+		EdgeFanout: maxInt(req.EdgeFanout, 1),
+		Protocols:  labplanner.NormalizeProtocols(req.Protocols),
+	}
+	if req.MultiHoming {
+		model.EdgeFanout = 2
 	}
 	nodeType := normalizeNodeType(req.NodeType)
 	if nodeType == "invalid" {
@@ -500,6 +551,20 @@ func BuildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string
 
 	if req.EdgeNodes < 0 {
 		errs = append(errs, "edge nodes must be >= 0")
+	}
+	if req.EdgeFanout < 0 {
+		errs = append(errs, "edge fanout must be >= 0")
+	}
+	if req.MultiHoming {
+		if topology != "leaf-spine" {
+			errs = append(errs, "multi-homing is only supported for leaf-spine topologies")
+		}
+		if req.LeafCount < 3 {
+			errs = append(errs, "multi-homing requires at least 3 leaf nodes")
+		}
+		if req.EdgeNodes < 1 {
+			errs = append(errs, "multi-homing requires at least 1 edge node")
+		}
 	}
 
 	return model, errs, warns

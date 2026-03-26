@@ -36,6 +36,7 @@ func NewMux(h *Handlers) (*http.ServeMux, error) {
 	mux.HandleFunc("/topology/render-config", h.TopologyRenderConfig)
 	mux.HandleFunc("/topology/build", h.TopologyBuild)
 	mux.HandleFunc("/topology/deploy", h.TopologyDeploy)
+	mux.HandleFunc("/topology/destroy", h.TopologyDestroy)
 	return mux, nil
 }
 

@@ -8,6 +8,14 @@ interface lo
  ip address {{ .Loopback }}/32
 !
 {{- end }}
+{{- if .EVPNMH.Enabled }}
+interface {{ .EVPNMH.BondName }}
+ description Ethernet Segment to {{ .EVPNMH.EdgeName }}
+ no ip address
+ evpn mh es-id {{ .EVPNMH.ESID }}
+ evpn mh es-sys-mac {{ .EVPNMH.SysMAC }}
+!
+{{- end }}
 {{- range .Interfaces }}
 interface {{ .Name }}
 {{- if .Desc }}

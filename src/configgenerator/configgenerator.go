@@ -37,6 +37,14 @@ type MPLSData struct {
 	RSVP bool
 }
 
+type EVPNMHData struct {
+	Enabled  bool
+	BondName string
+	EdgeName string
+	ESID     string
+	SysMAC   string
+}
+
 type NodeTemplateData struct {
 	Hostname      string
 	Loopback      string
@@ -53,12 +61,13 @@ type NodeTemplateData struct {
 	EdgeIfName    string
 	NodeType      string
 	MPLS          MPLSData
+	EVPNMH        EVPNMHData
 	SNMP          bool
 	GNMI          bool
 	SNMPCommunity string
 }
 
-func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplanner.LinkAssigned, nodeMap map[string]labplanner.NodePlan, snmpEnabled, gnmiEnabled bool) (string, error) {
+func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplanner.LinkAssigned, allLinks []labplanner.LinkAssigned, nodeMap map[string]labplanner.NodePlan, snmpEnabled, gnmiEnabled bool) (string, error) {
 	data := NodeTemplateData{
 		Hostname:      node.Name,
 		Loopback:      node.Loopback,
@@ -67,6 +76,7 @@ func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplann
 		GNMI:          gnmiEnabled,
 		SNMPCommunity: "public",
 	}
+	data.EVPNMH = evpnMHConfig(node, allLinks)
 
 	for _, link := range links {
 		var (
@@ -91,6 +101,9 @@ func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplann
 			peerRole = peer.Role
 		}
 		if peerRole == "edge" || strings.HasPrefix(peerName, "edge") {
+			if data.EVPNMH.Enabled && peerName == data.EVPNMH.EdgeName {
+				continue
+			}
 			if data.EdgeIfName == "" {
 				data.EdgeIfName = nodeInterfaceName(node.NodeType, ifName)
 			}
@@ -190,7 +203,7 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, node
 			b.WriteString("        - configs/" + node.Name + ".cfg:/etc/frr/frr.conf\n")
 			b.WriteString("        - configs/" + node.Name + ".daemons:/etc/frr/daemons\n")
 			if planNode, ok := nodeMap[node.Name]; ok {
-				execLines := frrStartupExec(planNode, links)
+				execLines := frrStartupExec(planNode, nodes, links)
 				if len(execLines) > 0 {
 					b.WriteString("      exec:\n")
 					for _, line := range execLines {
@@ -208,10 +221,23 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, node
 		b.WriteString("    " + host.Name + ":\n")
 		b.WriteString("      kind: linux\n")
 		b.WriteString("      image: alpine:3.19\n")
-		if host.IP != "" {
+		if host.IP != "" && len(host.IfNames) > 0 {
 			b.WriteString("      exec:\n")
-			b.WriteString("        - ip link set " + host.IfName + " up\n")
-			b.WriteString("        - ip addr add " + host.IP + "/" + strconv.Itoa(host.Prefix) + " dev " + host.IfName + "\n")
+			if len(host.IfNames) == 1 {
+				b.WriteString("        - ip link set " + host.IfNames[0] + " up\n")
+				b.WriteString("        - ip addr add " + host.IP + "/" + strconv.Itoa(host.Prefix) + " dev " + host.IfNames[0] + "\n")
+			} else {
+				// EVPN multihoming requires the CE to present a single bonded access
+				// interface while using multiple physical links to the ES peers.
+				b.WriteString("        - ip link add bond0 type bond mode active-backup\n")
+				b.WriteString("        - ip link set bond0 up\n")
+				for _, ifName := range host.IfNames {
+					b.WriteString("        - ip link set dev " + ifName + " down\n")
+					b.WriteString("        - ip link set dev " + ifName + " master bond0\n")
+					b.WriteString("        - ip link set " + ifName + " up\n")
+				}
+				b.WriteString("        - ip addr add " + host.IP + "/" + strconv.Itoa(host.Prefix) + " dev bond0\n")
+			}
 		}
 	}
 	if monitoring {
@@ -248,33 +274,96 @@ func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, node
 	return b.String()
 }
 
-func frrStartupExec(node labplanner.NodePlan, links []labplanner.LinkAssigned) []string {
+func frrStartupExec(node labplanner.NodePlan, nodes []labplanner.NodePlan, links []labplanner.LinkAssigned) []string {
 	if !containsProtocol(node.Protocols, "vxlan") || node.Loopback == "" {
 		return nil
 	}
-	edgeIf := ""
+	var edgeIfs []string
+	mh := evpnMHConfig(node, links)
+	var mhMembers []string
 	for _, link := range links {
 		switch {
 		case link.A == node.Name && strings.HasPrefix(link.B, "edge"):
-			edgeIf = link.AIf
+			if mh.Enabled && link.B == mh.EdgeName {
+				mhMembers = append(mhMembers, link.AIf)
+			} else {
+				edgeIfs = append(edgeIfs, link.AIf)
+			}
 		case link.B == node.Name && strings.HasPrefix(link.A, "edge"):
-			edgeIf = link.BIf
-		}
-		if edgeIf != "" {
-			break
+			if mh.Enabled && link.A == mh.EdgeName {
+				mhMembers = append(mhMembers, link.BIf)
+			} else {
+				edgeIfs = append(edgeIfs, link.BIf)
+			}
 		}
 	}
-	if edgeIf == "" {
+	if len(edgeIfs) == 0 && len(mhMembers) == 0 {
 		return nil
 	}
-	return []string{
-		"ip link add vxlan10 type vxlan id 10 local " + node.Loopback + " dev " + edgeIf + " dstport 4789",
+	execLines := []string{
+		// Linux manages the EVPN dataplane objects directly; FRR learns about them
+		// via netlink and attaches EVPN multihoming state to the bond interface.
+		"ip link add vxlan10 type vxlan id 10 local " + node.Loopback + " dstport 4789 nolearning",
 		"ip link add br0 type bridge",
 		"ip link set br0 up",
 		"ip link set vxlan10 master br0",
+		"ip link set dev vxlan10 type bridge_slave learning off neigh_suppress on",
 		"ip link set vxlan10 up",
-		"ip link set dev " + edgeIf + " master br0",
-		"ip link set dev " + edgeIf + " up",
+	}
+	if mh.Enabled {
+		execLines = append(execLines,
+			"ip link add bond0 type bond mode active-backup",
+			"ip link set bond0 up",
+		)
+		for _, member := range mhMembers {
+			execLines = append(execLines,
+				"ip link set dev "+member+" down",
+				"ip link set dev "+member+" master bond0",
+				"ip link set "+member+" up",
+			)
+		}
+		execLines = append(execLines, "ip link set dev bond0 master br0")
+	}
+	for _, edgeIf := range edgeIfs {
+		execLines = append(execLines,
+			"ip link set dev "+edgeIf+" master br0",
+			"ip link set dev "+edgeIf+" up",
+		)
+	}
+	for _, peer := range nodes {
+		if peer.Name == node.Name || peer.Loopback == "" || !containsProtocol(peer.Protocols, "vxlan") {
+			continue
+		}
+		// Program a static flood-list entry so unknown unicast, ARP, and broadcast
+		// traffic can reach remote VTEPs in FRR-based labs.
+		execLines = append(execLines, "bridge fdb append 00:00:00:00:00:00 dev vxlan10 dst "+peer.Loopback)
+	}
+	return execLines
+}
+
+func evpnMHConfig(node labplanner.NodePlan, links []labplanner.LinkAssigned) EVPNMHData {
+	if !containsProtocol(node.Protocols, "vxlan") || node.Role != "leaf" {
+		return EVPNMHData{}
+	}
+	edge1Links := 0
+	localEdge1 := false
+	for _, link := range links {
+		if link.A == "edge1" || link.B == "edge1" {
+			edge1Links++
+			if link.A == node.Name || link.B == node.Name {
+				localEdge1 = true
+			}
+		}
+	}
+	if edge1Links < 2 || !localEdge1 {
+		return EVPNMHData{}
+	}
+	return EVPNMHData{
+		Enabled:  true,
+		BondName: "bond0",
+		EdgeName: "edge1",
+		ESID:     "1",
+		SysMAC:   "02:00:00:00:00:01",
 	}
 }
 

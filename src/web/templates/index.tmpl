@@ -72,6 +72,13 @@
         Edge nodes
         <input id="edgeNodes" type="number" min="0" max="512" value="8">
       </label>
+      <label class="inline-check">
+        Multi-homing
+        <span class="checkline">
+          <input id="multiHoming" type="checkbox">
+          <span>Connect edge1 to two upstream leaf nodes</span>
+        </span>
+      </label>
     </div>
 
     <div id="customLinks" class="custom-links" data-topo="custom">
@@ -91,10 +98,11 @@
     <div class="graph-wrap">
       <svg id="graph" viewBox="0 0 1000 520" role="img" aria-label="Topology graph preview"></svg>
     </div>
-    <div class="legend">
+  <div class="legend">
       <div><span class="swatch spine"></span>Spine / Hub</div>
       <div><span class="swatch leaf"></span>Leaf / Spoke</div>
       <div><span class="swatch mesh"></span>Mesh / Custom</div>
+      <div><span class="swatch edge"></span>Edge</div>
     </div>
   </div>
 </section>
@@ -233,9 +241,16 @@
       <button id="validateBtn" type="button">Validate &amp; Preview</button>
       <button id="buildBtn" class="ghost" type="button">Generate Lab</button>
       <button id="deployBtn" class="ghost" type="button">Deploy Lab</button>
+      <button id="destroyBtn" class="ghost" type="button">Destroy Lab</button>
     </div>
   </div>
   <div class="form-grid">
+    <label>
+      Existing lab
+      <select id="builderLabSelect">
+        <option value="">Select a lab...</option>
+      </select>
+    </label>
     <label>
       Lab name
       <input id="labName" type="text" value="arista-lab">

@@ -113,6 +113,8 @@ type TopologyRequest struct {
 	HubCount    int                    `json:"hubCount"`
 	SpokeCount  int                    `json:"spokeCount"`
 	EdgeNodes   int                    `json:"edgeNodes"`
+	EdgeFanout  int                    `json:"edgeFanout"`
+	MultiHoming bool                   `json:"multiHoming"`
 	InfraCIDR   string                 `json:"infraCidr"`
 	EdgeCIDR    string                 `json:"edgeCidr"`
 	CustomLinks []LinkInput            `json:"customLinks"`
@@ -193,6 +195,11 @@ type DeployResponse struct {
 	Error  string `json:"error,omitempty"`
 	Output string `json:"output,omitempty"`
 	Path   string `json:"path,omitempty"`
+}
+
+type DestroyRequest struct {
+	LabName string `json:"labName"`
+	UseSudo bool   `json:"sudo"`
 }
 
 type RenderConfigRequest struct {

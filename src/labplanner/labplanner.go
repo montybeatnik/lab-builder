@@ -22,11 +22,12 @@ type ProtocolSet struct {
 }
 
 type TopologyModel struct {
-	Topology  string         `json:"topology"`
-	Nodes     []TopologyNode `json:"nodes"`
-	Links     []TopologyLink `json:"links"`
-	EdgeNodes int            `json:"edgeNodes"`
-	Protocols ProtocolSet    `json:"protocols"`
+	Topology   string         `json:"topology"`
+	Nodes      []TopologyNode `json:"nodes"`
+	Links      []TopologyLink `json:"links"`
+	EdgeNodes  int            `json:"edgeNodes"`
+	EdgeFanout int            `json:"edgeFanout"`
+	Protocols  ProtocolSet    `json:"protocols"`
 }
 
 type NodePlan struct {
@@ -62,10 +63,10 @@ type EdgeAttachment struct {
 }
 
 type EdgeHost struct {
-	Name   string
-	IP     string
-	Prefix int
-	IfName string
+	Name    string
+	IP      string
+	Prefix  int
+	IfNames []string
 }
 
 func BuildLabPlan(infraCIDR, edgeCIDR string, model TopologyModel, attachments []EdgeAttachment) (LabPlan, error) {
@@ -140,9 +141,12 @@ func EdgeLinks(model TopologyModel, edges []string, attachments []EdgeAttachment
 	if len(edges) == 0 {
 		return nil
 	}
-	attachMap := map[string]string{}
+	attachMap := map[string][]string{}
 	for _, a := range attachments {
-		attachMap[a.Edge] = a.Target
+		if strings.TrimSpace(a.Edge) == "" || strings.TrimSpace(a.Target) == "" {
+			continue
+		}
+		attachMap[a.Edge] = append(attachMap[a.Edge], a.Target)
 	}
 	var targets []string
 	validTargets := map[string]bool{}
@@ -158,13 +162,47 @@ func EdgeLinks(model TopologyModel, edges []string, attachments []EdgeAttachment
 			validTargets[n.Name] = true
 		}
 	}
+	fanout := model.EdgeFanout
+	if fanout < 1 {
+		fanout = 1
+	}
 	var links []TopologyLink
 	for i, edge := range edges {
-		target := targets[i%len(targets)]
-		if desired, ok := attachMap[edge]; ok && validTargets[desired] {
-			target = desired
+		seen := map[string]bool{}
+		var chosen []string
+		startOffset := i
+		desiredFanout := fanout
+		if model.Topology == "leaf-spine" && fanout > 1 && edge != "edge1" {
+			// Multi-homing is intentionally modeled only for edge1. Other edge hosts
+			// remain single-homed unless explicitly extended in the future.
+			desiredFanout = 1
 		}
-		links = append(links, TopologyLink{A: edge, B: target})
+		if model.Topology == "leaf-spine" && fanout > 1 && len(targets) > fanout-1 && i > 0 {
+			// When edge1 is multi-homed to the first two leaves, start subsequent
+			// default edge attachments after that reserved pair.
+			startOffset = i + fanout - 1
+		}
+
+		// Honor any explicit targets first, then fill the remaining slots from the
+		// eligible target pool so each edge attaches to distinct leaves.
+		for _, desired := range attachMap[edge] {
+			if !validTargets[desired] || seen[desired] {
+				continue
+			}
+			seen[desired] = true
+			chosen = append(chosen, desired)
+		}
+		for offset := 0; len(chosen) < desiredFanout && offset < len(targets); offset++ {
+			target := targets[(startOffset+offset)%len(targets)]
+			if seen[target] {
+				continue
+			}
+			seen[target] = true
+			chosen = append(chosen, target)
+		}
+		for _, target := range chosen {
+			links = append(links, TopologyLink{A: edge, B: target})
+		}
 	}
 	return links
 }
@@ -297,28 +335,31 @@ func allocateEdgeIPs(edgeCIDR string, nodes []NodePlan, edgeCount int, links []L
 	var hosts []EdgeHost
 	for i := 1; i <= edgeCount; i++ {
 		name := "edge" + itoa(i)
-		ifName := edgeIfName(name, links)
 		hosts = append(hosts, EdgeHost{
-			Name:   name,
-			IP:     intToIP(cur),
-			Prefix: prefix,
-			IfName: ifName,
+			Name:    name,
+			IP:      intToIP(cur),
+			Prefix:  prefix,
+			IfNames: edgeIfNames(name, links),
 		})
 		cur++
 	}
 	return hosts, nil
 }
 
-func edgeIfName(name string, links []LinkAssigned) string {
+func edgeIfNames(name string, links []LinkAssigned) []string {
+	var names []string
 	for _, link := range links {
 		if link.A == name {
-			return link.AIf
+			names = append(names, link.AIf)
 		}
 		if link.B == name {
-			return link.BIf
+			names = append(names, link.BIf)
 		}
 	}
-	return "eth1"
+	if len(names) == 0 {
+		return []string{"eth1"}
+	}
+	return names
 }
 
 func parseCIDR(cidr string) (uint32, int, error) {

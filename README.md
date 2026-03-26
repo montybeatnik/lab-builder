@@ -366,6 +366,12 @@ sudo docker exec -it clab-evpn-rdma-fabric-gpu4 sh -lc 'ip link set eth1 mtu 500
 
 ## Wireshark Capture
 ### To run sudo run 
+
+#### First change editor to vim. 
+```bash
+sudo update-alternatives --config editor 
+```
+
 ```bash
 sudo visudo 
 # add this line to the bottom
@@ -380,6 +386,10 @@ ssh {VM_IP} "ip netns exec clab-evpn-rdma-fabric-leaf1 tcpdump -U -nni eth1 -w -
 ssh 192.168.2.62 "sudo ip netns exec clab-arista-lab-leaf1 tcpdump -U -nni eth1 -w -" | wireshark -k -i - 
 ```
 
+May need to set an alias. 
+```bash
+alias wireshark=/Applications/Wireshark.app/Contents/MacOS/Wireshark
+```
 
 ```
 leaf1#show vxlan config-sanity
