@@ -484,7 +484,26 @@ func (h *Handlers) Labs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, LabsResponse{OK: false, Error: err.Error()})
 		return
 	}
+	for i := range labs {
+		labs[i].NodeType = detectLabNodeType(labs[i].Path)
+	}
 	writeJSON(w, http.StatusOK, LabsResponse{OK: true, Labs: labs})
+}
+
+func detectLabNodeType(labPath string) string {
+	body, err := os.ReadFile(filepath.Join(labPath, "lab.clab.yml"))
+	if err != nil {
+		return "unknown"
+	}
+	text := strings.ToLower(string(body))
+	switch {
+	case strings.Contains(text, "quay.io/frrouting/frr") || strings.Contains(text, "/etc/frr/"):
+		return "frr"
+	case strings.Contains(text, "ceosimage:") || strings.Contains(text, "kind: ceos"):
+		return "arista"
+	default:
+		return "unknown"
+	}
 }
 
 func (h *Handlers) LabPlan(w http.ResponseWriter, r *http.Request) {

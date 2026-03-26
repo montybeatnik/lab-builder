@@ -13,6 +13,7 @@ import (
 type LabRecord struct {
 	Name      string    `json:"name"`
 	Path      string    `json:"path"`
+	NodeType  string    `json:"nodeType,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 

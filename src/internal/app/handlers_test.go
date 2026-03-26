@@ -246,6 +246,42 @@ func TestLabs_IncludesFilesystemLabsWithoutIndexEntry(t *testing.T) {
 	}
 }
 
+func TestLabs_DetectsLabNodeType(t *testing.T) {
+	base := t.TempDir()
+	labDir := filepath.Join(base, "frr-lab")
+	if err := os.MkdirAll(labDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	labYAML := `name: frr-lab
+topology:
+  nodes:
+    leaf1:
+      kind: linux
+      image: quay.io/frrouting/frr:9.1.3
+      binds:
+        - configs/leaf1.cfg:/etc/frr/frr.conf
+`
+	if err := os.WriteFile(filepath.Join(labDir, "lab.clab.yml"), []byte(labYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewHandlers(Config{BaseDir: base}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/labs", nil)
+	rec := httptest.NewRecorder()
+	h.Labs(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var resp LabsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Labs) != 1 || resp.Labs[0].NodeType != "frr" {
+		t.Fatalf("expected detected frr node type, got %#v", resp.Labs)
+	}
+}
+
 func TestLabs_FallsBackWhenIndexIsNotUsable(t *testing.T) {
 	base := t.TempDir()
 	if err := os.WriteFile(filepath.Join(base, ".lab-index.sqlite"), []byte("not-a-sqlite-db"), 0o644); err != nil {

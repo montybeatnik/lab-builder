@@ -6,18 +6,22 @@
 
   const topoSelectors = ['leaf-spine', 'full-mesh', 'hub-spoke', 'custom'];
   const svgNS = 'http://www.w3.org/2000/svg';
+  const knownLabs = new Map();
 
   function populateLabSelect(select, labs) {
     if (!select) return;
+    knownLabs.clear();
     if (!labs || labs.length === 0) {
       select.innerHTML = '<option value="">No labs found</option>';
       return;
     }
     select.innerHTML = '<option value="">Select a lab...</option>';
     labs.forEach(lab => {
+      knownLabs.set(lab.name, lab);
       const option = document.createElement('option');
       option.value = lab.name;
-      option.textContent = `${lab.name} (${lab.path})`;
+      const typeLabel = lab.nodeType ? `[${lab.nodeType}] ` : '';
+      option.textContent = `${lab.name} ${typeLabel}(${lab.path})`;
       select.appendChild(option);
     });
   }
@@ -44,6 +48,19 @@
     const select = $('builderLabSelect');
     if (!select) return;
     select.value = $('labName').value.trim();
+  }
+
+  function labDeployWarning(labName) {
+    const lab = knownLabs.get(labName);
+    if (!lab || !lab.nodeType) return '';
+    const lowerName = labName.toLowerCase();
+    if (lowerName.startsWith('frr-') && lab.nodeType === 'arista') {
+      return `Lab "${labName}" is named like an FRR lab, but ${lab.path}/lab.clab.yml renders as cEOS/Arista. Deploy anyway?`;
+    }
+    if (lowerName.startsWith('arista-') && lab.nodeType === 'frr') {
+      return `Lab "${labName}" is named like an Arista lab, but ${lab.path}/lab.clab.yml renders as FRR. Deploy anyway?`;
+    }
+    return '';
   }
 
   function showTopoFields() {
@@ -430,8 +447,13 @@
   }
 
   async function deployLab() {
+    const labName = $('labName').value.trim();
+    const warning = labDeployWarning(labName);
+    if (warning && !window.confirm(warning)) {
+      return;
+    }
     const payload = {
-      labName: $('labName').value.trim(),
+      labName,
       sudo: $('deploySudo').value === 'true',
       force: $('forceBuild').value === 'true'
     };
