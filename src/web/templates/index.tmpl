@@ -20,11 +20,14 @@
       <div>Base dir</div>
       <code id="baseDir">{{ .BaseDir }}</code>
     </div>
+    <div class="tour-inline">
+      <button id="guidedTourStart" class="ghost" type="button">Start Guided Tour</button>
+    </div>
   </div>
 </header>
 
 <section class="grid">
-  <div class="panel">
+  <div class="panel" id="buildTopologyPanel">
     <h2>Topology</h2>
     <p class="muted">Pick a topology, shape the node counts, and wire custom links when needed.</p>
     <div class="form-grid">
@@ -90,7 +93,7 @@
     </div>
   </div>
 
-  <div class="panel graph-panel">
+  <div class="panel graph-panel" id="buildGraphPanel">
     <div class="graph-header">
       <h2>Graph preview</h2>
       <button id="refreshGraph" class="ghost" type="button">Refresh</button>
@@ -107,7 +110,7 @@
   </div>
 </section>
 
-<details class="panel collapsible-panel address-panel" data-collapse-key="addressing">
+<details class="panel collapsible-panel address-panel" data-collapse-key="addressing" id="addressPanel">
   <summary class="panel-summary">
     <h2>Addressing</h2>
   </summary>
@@ -168,7 +171,7 @@
   </div>
 </details>
 
-<details class="panel collapsible-panel" data-collapse-key="monitoring">
+<details class="panel collapsible-panel" data-collapse-key="monitoring" id="monitoringPanel">
   <summary class="panel-summary">
     <h2>Monitoring</h2>
   </summary>
@@ -210,7 +213,7 @@ rate(ifOutErrors[5m])</pre>
   </div>
 </details>
 
-<details class="panel collapsible-panel" data-collapse-key="edge-attachments">
+<details class="panel collapsible-panel" data-collapse-key="edge-attachments" id="edgeAttachPanel">
   <summary class="panel-summary">
     <h2>Edge attachments</h2>
   </summary>
@@ -218,7 +221,7 @@ rate(ifOutErrors[5m])</pre>
   <div id="edgeAttachments" class="edge-attachments"></div>
 </details>
 
-<details class="panel collapsible-panel" open data-collapse-key="protocols">
+<details class="panel collapsible-panel" open data-collapse-key="protocols" id="protocolsPanel">
   <summary class="panel-summary">
     <div class="section-head">
       <h2>Protocols</h2>
@@ -271,7 +274,7 @@ rate(ifOutErrors[5m])</pre>
   </div>
 </details>
 
-<details class="panel collapsible-panel validate-panel" open data-collapse-key="validation">
+<details class="panel collapsible-panel validate-panel" open data-collapse-key="validation" id="validationPanel">
   <summary class="panel-summary">
     <div class="validate-header">
       <h2>Validation</h2>

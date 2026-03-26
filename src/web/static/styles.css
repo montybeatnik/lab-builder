@@ -574,6 +574,70 @@ a.monitor-link {
   transform: scale(1.1);
 }
 
+.tour-inline {
+  margin-top: 0.9rem;
+}
+
+.guided-tour-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 16, 0.55);
+  z-index: 1400;
+}
+
+.guided-tour-focus {
+  position: fixed;
+  border: 3px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgba(10, 12, 16, 0.55);
+  z-index: 1401;
+  pointer-events: none;
+  transition: all 180ms ease;
+}
+
+.guided-tour-card {
+  position: fixed;
+  width: min(380px, calc(100vw - 24px));
+  background: #fff;
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  padding: 1rem;
+  box-shadow: var(--shadow);
+  z-index: 1402;
+}
+
+.guided-tour-card h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.guided-tour-progress {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.guided-tour-body {
+  margin-top: 0.5rem;
+  color: #2c2a29;
+}
+
+.guided-tour-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.guided-tour-actions .right {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.guided-tour-target {
+  position: relative;
+  z-index: 1403;
+}
+
 @media (max-width: 900px) {
   .hero { flex-direction: column; }
   .status-card { width: 100%; }

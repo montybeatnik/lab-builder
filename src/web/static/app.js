@@ -7,6 +7,263 @@
   const topoSelectors = ['leaf-spine', 'full-mesh', 'hub-spoke', 'custom'];
   const svgNS = 'http://www.w3.org/2000/svg';
   const knownLabs = new Map();
+  const tourState = {
+    active: false,
+    index: 0,
+    currentTarget: null,
+    readyTimer: null,
+    scrollHandler: null,
+    resizeHandler: null,
+    keyHandler: null
+  };
+
+  function tourSteps() {
+    return [
+      {
+        title: 'Choose Topology',
+        body: 'Start in Topology. For this walkthrough we pick Leaf/Spine and FRR, then set spines/leaves/edges.',
+        target: 'buildTopologyPanel',
+        onEnter: () => {
+          setFieldValue('topology', 'leaf-spine', 'change');
+          setFieldValue('nodeType', 'frr', 'change');
+          setFieldValue('spines', '2', 'input');
+          setFieldValue('leaves', '3', 'input');
+          setFieldValue('edgeNodes', '2', 'input');
+          setFieldValue('multiHoming', false, 'change');
+        }
+      },
+      {
+        title: 'Set Addressing',
+        body: 'Open Addressing and define infrastructure and edge CIDRs. These values drive IP allocation.',
+        target: 'addressPanel',
+        onEnter: () => {
+          openPanel('addressPanel');
+          setFieldValue('infraCidr', '10.0.0.0/20', 'input');
+          setFieldValue('edgeCidr', '172.16.0.0/24', 'input');
+        }
+      },
+      {
+        title: 'Apply Protocol Defaults',
+        body: 'Open Protocols and apply default protocol lanes for the selected topology.',
+        target: 'protocolsPanel',
+        onEnter: () => {
+          openPanel('protocolsPanel');
+          const btn = $('applyProtoDefaultsBtn');
+          if (btn) btn.click();
+        }
+      },
+      {
+        title: 'Validate The Plan',
+        body: 'Open Validation and click "Validate & Preview". Next unlocks after validation results appear.',
+        target: 'validationPanel',
+        onEnter: () => openPanel('validationPanel'),
+        ready: () => {
+          const checks = $('checks');
+          if (!checks) return false;
+          return checks.querySelector('.check') !== null;
+        }
+      },
+      {
+        title: 'Read Graph Preview',
+        body: 'Graph Preview reflects your current selections and edge attachments. Use this to catch topology mistakes early.',
+        target: 'buildGraphPanel'
+      },
+      {
+        title: 'Ready To Build',
+        body: 'Next step in normal flow is Generate Lab, then Deploy Lab. You can restart this tour any time from the status card.',
+        target: 'validationPanel',
+        onEnter: () => openPanel('validationPanel')
+      }
+    ];
+  }
+
+  function setFieldValue(id, value, eventName) {
+    const el = $(id);
+    if (!el) return;
+    if (el.type === 'checkbox') {
+      el.checked = Boolean(value);
+    } else {
+      el.value = value;
+    }
+    const evt = new Event(eventName || 'change', { bubbles: true });
+    el.dispatchEvent(evt);
+  }
+
+  function openPanel(id) {
+    const panel = $(id);
+    if (panel && panel.tagName === 'DETAILS') {
+      panel.open = true;
+    }
+  }
+
+  function ensureTourUI() {
+    if ($('guidedTourBackdrop')) return;
+    const backdrop = document.createElement('div');
+    backdrop.id = 'guidedTourBackdrop';
+    backdrop.className = 'guided-tour-backdrop';
+    backdrop.hidden = true;
+
+    const focus = document.createElement('div');
+    focus.id = 'guidedTourFocus';
+    focus.className = 'guided-tour-focus';
+    focus.hidden = true;
+
+    const card = document.createElement('div');
+    card.id = 'guidedTourCard';
+    card.className = 'guided-tour-card';
+    card.hidden = true;
+    card.innerHTML = `
+      <div class="guided-tour-progress" id="guidedTourProgress"></div>
+      <h3 id="guidedTourTitle"></h3>
+      <div class="guided-tour-body" id="guidedTourBody"></div>
+      <div class="guided-tour-actions">
+        <button id="guidedTourPrev" class="ghost" type="button">Back</button>
+        <div class="right">
+          <button id="guidedTourStop" class="ghost" type="button">Close</button>
+          <button id="guidedTourNext" type="button">Next</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+    document.body.appendChild(focus);
+    document.body.appendChild(card);
+
+    $('guidedTourPrev').addEventListener('click', tourPrev);
+    $('guidedTourNext').addEventListener('click', tourNext);
+    $('guidedTourStop').addEventListener('click', stopGuidedTour);
+    backdrop.addEventListener('click', stopGuidedTour);
+  }
+
+  function startGuidedTour() {
+    ensureTourUI();
+    tourState.active = true;
+    tourState.index = 0;
+    $('guidedTourBackdrop').hidden = false;
+    $('guidedTourFocus').hidden = false;
+    $('guidedTourCard').hidden = false;
+    tourState.scrollHandler = () => positionTour();
+    tourState.resizeHandler = () => positionTour();
+    tourState.keyHandler = (e) => {
+      if (e.key === 'Escape') stopGuidedTour();
+    };
+    window.addEventListener('scroll', tourState.scrollHandler, true);
+    window.addEventListener('resize', tourState.resizeHandler);
+    window.addEventListener('keydown', tourState.keyHandler);
+    showTourStep();
+  }
+
+  function stopGuidedTour() {
+    tourState.active = false;
+    if (tourState.readyTimer) clearInterval(tourState.readyTimer);
+    tourState.readyTimer = null;
+    if (tourState.currentTarget) tourState.currentTarget.classList.remove('guided-tour-target');
+    tourState.currentTarget = null;
+    const backdrop = $('guidedTourBackdrop');
+    const focus = $('guidedTourFocus');
+    const card = $('guidedTourCard');
+    if (backdrop) backdrop.hidden = true;
+    if (focus) focus.hidden = true;
+    if (card) card.hidden = true;
+    if (tourState.scrollHandler) window.removeEventListener('scroll', tourState.scrollHandler, true);
+    if (tourState.resizeHandler) window.removeEventListener('resize', tourState.resizeHandler);
+    if (tourState.keyHandler) window.removeEventListener('keydown', tourState.keyHandler);
+    tourState.scrollHandler = null;
+    tourState.resizeHandler = null;
+    tourState.keyHandler = null;
+  }
+
+  function tourPrev() {
+    if (!tourState.active) return;
+    if (tourState.index <= 0) return;
+    tourState.index -= 1;
+    showTourStep();
+  }
+
+  function tourNext() {
+    if (!tourState.active) return;
+    const steps = tourSteps();
+    if (tourState.index >= steps.length - 1) {
+      stopGuidedTour();
+      return;
+    }
+    tourState.index += 1;
+    showTourStep();
+  }
+
+  function showTourStep() {
+    const steps = tourSteps();
+    const step = steps[tourState.index];
+    if (!step) {
+      stopGuidedTour();
+      return;
+    }
+    if (tourState.readyTimer) clearInterval(tourState.readyTimer);
+    tourState.readyTimer = null;
+    if (typeof step.onEnter === 'function') {
+      step.onEnter();
+    }
+
+    const target = $(step.target);
+    if (!target) {
+      stopGuidedTour();
+      return;
+    }
+    if (tourState.currentTarget) {
+      tourState.currentTarget.classList.remove('guided-tour-target');
+    }
+    tourState.currentTarget = target;
+    target.classList.add('guided-tour-target');
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    $('guidedTourProgress').textContent = `Step ${tourState.index + 1} of ${steps.length}`;
+    $('guidedTourTitle').textContent = step.title;
+    $('guidedTourBody').textContent = step.body;
+    $('guidedTourPrev').disabled = tourState.index === 0;
+    const next = $('guidedTourNext');
+    next.textContent = tourState.index === steps.length - 1 ? 'Finish' : 'Next';
+
+    const updateNextState = () => {
+      if (!step.ready) {
+        next.disabled = false;
+        return;
+      }
+      next.disabled = !step.ready();
+    };
+    updateNextState();
+    if (step.ready) {
+      tourState.readyTimer = setInterval(updateNextState, 300);
+    }
+
+    requestAnimationFrame(() => positionTour());
+  }
+
+  function positionTour() {
+    if (!tourState.active || !tourState.currentTarget) return;
+    const targetRect = tourState.currentTarget.getBoundingClientRect();
+    const focus = $('guidedTourFocus');
+    const card = $('guidedTourCard');
+    if (!focus || !card) return;
+
+    const pad = 8;
+    focus.style.left = `${Math.max(4, targetRect.left - pad)}px`;
+    focus.style.top = `${Math.max(4, targetRect.top - pad)}px`;
+    focus.style.width = `${Math.max(20, targetRect.width + pad * 2)}px`;
+    focus.style.height = `${Math.max(20, targetRect.height + pad * 2)}px`;
+
+    const margin = 12;
+    const cardWidth = card.offsetWidth || 360;
+    const cardHeight = card.offsetHeight || 220;
+    let left = targetRect.left;
+    left = Math.max(margin, Math.min(left, window.innerWidth - cardWidth - margin));
+    let top = targetRect.bottom + margin;
+    if (top + cardHeight > window.innerHeight - margin) {
+      top = targetRect.top - cardHeight - margin;
+    }
+    if (top < margin) top = margin;
+    card.style.left = `${left}px`;
+    card.style.top = `${top}px`;
+  }
 
   function populateLabSelect(select, labs) {
     if (!select) return;
@@ -812,6 +1069,10 @@
     $('applyProtoDefaultsBtn').addEventListener('click', applyProtocolDefaults);
     $('builderLabSelect').addEventListener('change', syncSelectedBuilderLab);
     $('labName').addEventListener('input', syncBuilderLabSelection);
+    const guidedTourBtn = $('guidedTourStart');
+    if (guidedTourBtn) {
+      guidedTourBtn.addEventListener('click', startGuidedTour);
+    }
   }
 
   function renderEdgeAttachments() {
