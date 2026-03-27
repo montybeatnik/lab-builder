@@ -27,3 +27,7 @@ func (h *Handlers) Lab(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) Viewer(w http.ResponseWriter, r *http.Request) {
 	h.renderPage(w, "viewer")
 }
+
+func (h *Handlers) Live(w http.ResponseWriter, r *http.Request) {
+	h.renderPage(w, "live")
+}

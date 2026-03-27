@@ -1,0 +1,119 @@
+{{ define "live_title" }}Live Topology{{ end }}
+
+{{ define "live_content" }}
+<header class="hero">
+  <div>
+    <p class="eyebrow">LAB BUILDER</p>
+    <h1>Live Topology</h1>
+    <p class="subhead">Near-real-time topology telemetry. Link state is polled from live node interfaces.</p>
+    <nav class="page-nav">
+      <a href="/">Build</a>
+      <a href="/viewer">Lab Viewer</a>
+      <a href="/live" class="active">Live Topology</a>
+      <a href="/lab">Health</a>
+    </nav>
+  </div>
+  <div class="status-card">
+    <div class="status-line">
+      <span id="liveStatus" class="status status-idle">Select a lab</span>
+    </div>
+    <div class="status-meta">
+      <div>Base dir</div>
+      <code>{{ .BaseDir }}</code>
+    </div>
+  </div>
+</header>
+
+<section class="panel">
+  <h2>Live Controls</h2>
+  <div class="form-grid">
+    <label>
+      Lab
+      <select id="liveLabSelect">
+        <option value="">Loading...</option>
+      </select>
+    </label>
+    <label>
+      Poll interval (seconds)
+      <input id="livePollSec" type="number" min="1" max="30" value="3">
+    </label>
+    <label>
+      Use sudo
+      <select id="liveUseSudo">
+        <option value="true" selected>yes</option>
+        <option value="false">no</option>
+      </select>
+    </label>
+  </div>
+  <div class="validate-actions">
+    <button id="liveStartBtn" type="button">Start</button>
+    <button id="liveStopBtn" class="ghost" type="button">Stop</button>
+    <label class="inline-check">
+      Show protocol peerings
+      <span class="checkline">
+        <input id="liveShowPeerings" type="checkbox">
+        <span>Display BGP peerings and AFI/SAFI overlays</span>
+      </span>
+    </label>
+  </div>
+  <hr>
+  <h3>Generate Edge Traffic</h3>
+  <div class="form-grid">
+    <label>
+      Source edge
+      <select id="liveTrafficSource">
+        <option value="">Select source...</option>
+      </select>
+    </label>
+    <label>
+      Target edge
+      <select id="liveTrafficTarget">
+        <option value="">Select target...</option>
+      </select>
+    </label>
+    <label>
+      Ping count
+      <input id="liveTrafficCount" type="number" min="1" max="50" value="5">
+    </label>
+  </div>
+  <div class="validate-actions">
+    <button id="liveTrafficRunBtn" class="ghost" type="button">Generate Traffic</button>
+    <span id="liveTrafficStatus" class="muted">Select source/target edge nodes.</span>
+  </div>
+</section>
+
+<section class="grid">
+  <div class="panel graph-panel live-graph-panel">
+    <div class="graph-header">
+      <h2>Live Graph</h2>
+      <div class="live-graph-tools">
+        <button id="livePanLeftBtn" class="ghost" type="button">←</button>
+        <button id="livePanUpBtn" class="ghost" type="button">↑</button>
+        <button id="livePanDownBtn" class="ghost" type="button">↓</button>
+        <button id="livePanRightBtn" class="ghost" type="button">→</button>
+        <button id="liveZoomOutBtn" class="ghost" type="button">-</button>
+        <button id="liveZoomResetBtn" class="ghost" type="button">Reset</button>
+        <button id="liveZoomInBtn" class="ghost" type="button">+</button>
+        <span id="liveZoomLabel" class="muted">100%</span>
+        <span id="livePolledAt" class="muted"></span>
+      </div>
+    </div>
+    <div class="graph-wrap live-graph-wrap future-wrap">
+      <svg id="liveGraph" class="live-graph future-mode" viewBox="0 0 1400 760" role="img" aria-label="Live topology graph"></svg>
+    </div>
+    <div class="legend">
+      <div><span class="swatch live-up"></span>Link up</div>
+      <div><span class="swatch live-down"></span>Link down</div>
+      <div><span class="swatch live-unknown"></span>Link unknown</div>
+      <div><span class="swatch peering-up"></span>Peering up</div>
+      <div><span class="swatch peering-down"></span>Peering down</div>
+      <div><span class="swatch switch"></span>Switch</div>
+      <div><span class="swatch server"></span>Server</div>
+    </div>
+  </div>
+  <div class="panel live-details-panel">
+    <h2>Details</h2>
+    <pre id="liveDetails" class="result-block"></pre>
+  </div>
+</section>
+{{ end }}

@@ -25,6 +25,7 @@ func NewMux(h *Handlers) (*http.ServeMux, error) {
 	mux.HandleFunc("/", h.Index)
 	mux.HandleFunc("/lab", h.Lab)
 	mux.HandleFunc("/viewer", h.Viewer)
+	mux.HandleFunc("/live", h.Live)
 	mux.HandleFunc("/labs", h.Labs)
 	mux.HandleFunc("/labplan", h.LabPlan)
 	mux.HandleFunc("/lab/nodes", h.LabNodes)
@@ -37,6 +38,8 @@ func NewMux(h *Handlers) (*http.ServeMux, error) {
 	mux.HandleFunc("/topology/build", h.TopologyBuild)
 	mux.HandleFunc("/topology/deploy", h.TopologyDeploy)
 	mux.HandleFunc("/topology/destroy", h.TopologyDestroy)
+	mux.HandleFunc("/topology/live", h.TopologyLive)
+	mux.HandleFunc("/topology/traffic", h.TopologyTraffic)
 	return mux, nil
 }
 

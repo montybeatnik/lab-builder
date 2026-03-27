@@ -7,16 +7,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/montybeatnik/arista-lab/laber/labplanner"
 	"github.com/montybeatnik/arista-lab/laber/labstore"
 	"github.com/montybeatnik/arista-lab/laber/pkgs/arista"
 	"github.com/montybeatnik/arista-lab/laber/pkgs/renderer"
@@ -45,6 +48,9 @@ func runContainerCommand(ctx context.Context, target string, useSudo bool, args 
 	cmd := exec.CommandContext(ctx, "docker", cmdArgs...)
 	return cmd.Output()
 }
+
+var runContainerCommandFn = runContainerCommand
+var runInspectFn = runInspect
 
 func runFRRShowJSON(ctx context.Context, n ContainerInfo, useSudo bool, command string) (map[string]any, error) {
 	target := n.ContainerID
@@ -558,6 +564,531 @@ func (h *Handlers) LabPlan(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handlers) TopologyLive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req LiveTopologyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, LiveTopologyResponse{OK: false, Error: "bad JSON: " + err.Error()})
+		return
+	}
+	labName := strings.TrimSpace(req.LabName)
+	if labName == "" {
+		writeJSON(w, http.StatusBadRequest, LiveTopologyResponse{OK: false, Error: "labName is required"})
+		return
+	}
+	if !isSafeName(labName) {
+		writeJSON(w, http.StatusBadRequest, LiveTopologyResponse{OK: false, Error: "labName must be alphanumeric, dash, or underscore"})
+		return
+	}
+	labPath := filepath.Join(h.cfg.BaseDir, labName, "lab.clab.yml")
+	if _, err := os.Stat(labPath); err != nil {
+		writeJSON(w, http.StatusBadRequest, LiveTopologyResponse{OK: false, Error: "lab file not found at " + labPath})
+		return
+	}
+
+	db, err := labstore.OpenLabDB(h.cfg.BaseDir)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, LiveTopologyResponse{OK: false, Error: err.Error()})
+		return
+	}
+	defer db.Close()
+	plan, err := labstore.LoadLabPlan(db, labName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, LiveTopologyResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	out, err := runInspectFn(ctx, labPath, req.UseSudo)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, LiveTopologyResponse{OK: false, Error: "inspect failed: " + err.Error()})
+		return
+	}
+	containers, err := inspectNodesFromOutput(out)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, LiveTopologyResponse{OK: false, Error: "parse inspect: " + err.Error()})
+		return
+	}
+	nodeContainer := map[string]ContainerInfo{}
+	for _, c := range containers {
+		name := shortNodeName(c.Name, labName)
+		if name == "" {
+			continue
+		}
+		nodeContainer[name] = c
+	}
+
+	var nodes []NodePlanJSON
+	for _, n := range plan.Nodes {
+		nodes = append(nodes, NodePlanJSON{
+			Name:       n.Name,
+			Role:       n.Role,
+			ASN:        n.ASN,
+			Loopback:   n.Loopback,
+			EdgeIP:     n.EdgeIP,
+			EdgePrefix: n.EdgePrefix,
+		})
+	}
+
+	ifaceStateCache := map[string]string{}
+	linkStatuses := make([]LiveLinkStatus, 0, len(plan.Links))
+	summary := LiveSummary{Total: len(plan.Links)}
+	for _, link := range plan.Links {
+		aState := endpointOperState(ctx, nodeContainer, ifaceStateCache, link.A, link.AIf, req.UseSudo)
+		bState := endpointOperState(ctx, nodeContainer, ifaceStateCache, link.B, link.BIf, req.UseSudo)
+		state := combineLinkState(aState, bState)
+		switch state {
+		case "up":
+			summary.Up++
+		case "down":
+			summary.Down++
+		default:
+			summary.Unknown++
+		}
+		linkStatuses = append(linkStatuses, LiveLinkStatus{
+			A:     link.A,
+			B:     link.B,
+			AIf:   link.AIf,
+			BIf:   link.BIf,
+			State: state,
+			Endpoints: []LiveEndpointStatus{
+				{Node: link.A, Iface: link.AIf, State: aState},
+				{Node: link.B, Iface: link.BIf, State: bState},
+			},
+		})
+	}
+
+	var peerings []LivePeeringStatus
+	if req.ShowPeerings {
+		peerings = collectLivePeerings(ctx, plan.Nodes, plan.Links, nodeContainer, req.UseSudo)
+		peerings = reconcilePeeringsWithLinks(peerings, linkStatuses)
+	}
+
+	writeJSON(w, http.StatusOK, LiveTopologyResponse{
+		OK:       true,
+		LabName:  labName,
+		Nodes:    nodes,
+		Links:    linkStatuses,
+		Peerings: peerings,
+		Summary:  summary,
+		PolledAt: time.Now().Format(time.RFC3339),
+	})
+}
+
+func (h *Handlers) TopologyTraffic(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req TrafficRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "bad JSON: " + err.Error()})
+		return
+	}
+
+	req.LabName = strings.TrimSpace(req.LabName)
+	req.Source = strings.TrimSpace(req.Source)
+	req.Target = strings.TrimSpace(req.Target)
+	if req.LabName == "" || req.Source == "" || req.Target == "" {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "labName, source, and target are required"})
+		return
+	}
+	if !isSafeName(req.LabName) || !isSafeName(req.Source) || !isSafeName(req.Target) {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "labName, source, and target must be alphanumeric, dash, or underscore"})
+		return
+	}
+	if req.Source == req.Target {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "source and target must be different"})
+		return
+	}
+
+	labPath := filepath.Join(h.cfg.BaseDir, req.LabName, "lab.clab.yml")
+	if _, err := os.Stat(labPath); err != nil {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "lab file not found at " + labPath})
+		return
+	}
+
+	db, err := labstore.OpenLabDB(h.cfg.BaseDir)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, TrafficResponse{OK: false, Error: err.Error()})
+		return
+	}
+	defer db.Close()
+	plan, err := labstore.LoadLabPlan(db, req.LabName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, TrafficResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	out, err := runInspectFn(ctx, labPath, req.UseSudo)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "inspect failed: " + err.Error()})
+		return
+	}
+	containers, err := inspectNodesFromOutput(out)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, TrafficResponse{OK: false, Error: "parse inspect: " + err.Error()})
+		return
+	}
+	var sourceContainer, targetContainer string
+	for _, c := range containers {
+		short := shortNodeName(c.Name, req.LabName)
+		if short == req.Source {
+			if strings.TrimSpace(c.ContainerID) != "" {
+				sourceContainer = strings.TrimSpace(c.ContainerID)
+			} else {
+				sourceContainer = strings.TrimSpace(c.Name)
+			}
+		}
+		if short == req.Target {
+			if strings.TrimSpace(c.ContainerID) != "" {
+				targetContainer = strings.TrimSpace(c.ContainerID)
+			} else {
+				targetContainer = strings.TrimSpace(c.Name)
+			}
+		}
+	}
+
+	targetIP := edgeIPByName(plan.Nodes, req.Target)
+	if net.ParseIP(targetIP) == nil {
+		targetIP = edgeIPFromStartup(labPath, req.Target)
+	}
+	if net.ParseIP(targetIP) == nil && targetContainer != "" {
+		targetIP = edgeRuntimeIP(ctx, targetContainer, req.UseSudo)
+	}
+	if net.ParseIP(targetIP) == nil {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "target edge IP not found for " + req.Target})
+		return
+	}
+	if sourceContainer == "" {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "source container not found for " + req.Source})
+		return
+	}
+
+	count := req.Count
+	if count <= 0 {
+		count = 5
+	}
+	if count > 50 {
+		count = 50
+	}
+	countStr := strconv.Itoa(count)
+	cmdOut, err := runContainerCommandFn(ctx, sourceContainer, req.UseSudo, "ping", "-c", countStr, "-W", "1", targetIP)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{
+			OK:       false,
+			Error:    "traffic command failed: " + err.Error(),
+			LabName:  req.LabName,
+			Source:   req.Source,
+			Target:   req.Target,
+			TargetIP: targetIP,
+			Command:  "ping -c " + countStr + " -W 1 " + targetIP,
+			Output:   string(cmdOut),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, TrafficResponse{
+		OK:       true,
+		LabName:  req.LabName,
+		Source:   req.Source,
+		Target:   req.Target,
+		TargetIP: targetIP,
+		Command:  "ping -c " + countStr + " -W 1 " + targetIP,
+		Output:   string(cmdOut),
+	})
+}
+
+func edgeIPByName(nodes []labplanner.NodePlan, edgeName string) string {
+	for _, n := range nodes {
+		if n.Name != edgeName || n.Role != "edge" {
+			continue
+		}
+		return strings.TrimSpace(n.EdgeIP)
+	}
+	return ""
+}
+
+var edgeAddrCmdRE = regexp.MustCompile(`\bip\s+(?:addr|address)\s+add\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\/[0-9]+\b`)
+
+func edgeIPFromStartup(labPath, edgeName string) string {
+	startup, err := nodeStartupConfig(labPath, edgeName)
+	if err != nil {
+		return ""
+	}
+	m := edgeAddrCmdRE.FindStringSubmatch(startup)
+	if len(m) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
+
+func edgeRuntimeIP(ctx context.Context, container string, useSudo bool) string {
+	out, err := runContainerCommandFn(ctx, container, useSudo, "sh", "-lc", "ip -4 -o addr show scope global")
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(out), "\n")
+	var fallback string
+	for _, line := range lines {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 4 {
+			continue
+		}
+		ifName := strings.TrimSuffix(fields[1], ":")
+		cidr := fields[3]
+		ip := CIDRIP(cidr)
+		if net.ParseIP(ip) == nil {
+			continue
+		}
+		// Prefer data-plane interfaces over the management interface.
+		if strings.HasPrefix(ifName, "eth") && ifName != "eth0" {
+			return ip
+		}
+		if fallback == "" {
+			fallback = ip
+		}
+	}
+	return fallback
+}
+
+func inspectNodesFromOutput(out []byte) ([]ContainerInfo, error) {
+	var parsed InspectResult
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return nil, err
+	}
+	for _, list := range parsed {
+		return list, nil
+	}
+	return nil, nil
+}
+
+func shortNodeName(containerName, labName string) string {
+	name := strings.TrimSpace(containerName)
+	if name == "" {
+		return ""
+	}
+	prefix := "clab-" + labName + "-"
+	if strings.HasPrefix(name, prefix) {
+		return strings.TrimPrefix(name, prefix)
+	}
+	return name
+}
+
+func endpointOperState(ctx context.Context, nodeMap map[string]ContainerInfo, cache map[string]string, nodeName, ifName string, useSudo bool) string {
+	if strings.TrimSpace(nodeName) == "" || strings.TrimSpace(ifName) == "" {
+		return "unknown"
+	}
+	key := nodeName + "|" + ifName
+	if v, ok := cache[key]; ok {
+		return v
+	}
+	n, ok := nodeMap[nodeName]
+	if !ok {
+		cache[key] = "unknown"
+		return "unknown"
+	}
+	target := n.ContainerID
+	if strings.TrimSpace(target) == "" {
+		target = n.Name
+	}
+	if strings.TrimSpace(target) == "" {
+		cache[key] = "unknown"
+		return "unknown"
+	}
+	cmd := fmt.Sprintf("cat /sys/class/net/%s/operstate 2>/dev/null || echo unknown", ifName)
+	out, err := runContainerCommand(ctx, target, useSudo, "sh", "-lc", cmd)
+	if err != nil {
+		cache[key] = "unknown"
+		return "unknown"
+	}
+	state := strings.ToLower(strings.TrimSpace(string(out)))
+	switch state {
+	case "up":
+		cache[key] = "up"
+	case "down":
+		cache[key] = "down"
+	default:
+		cache[key] = "unknown"
+	}
+	return cache[key]
+}
+
+func combineLinkState(aState, bState string) string {
+	if aState == "up" && bState == "up" {
+		return "up"
+	}
+	if aState == "down" || bState == "down" {
+		return "down"
+	}
+	return "unknown"
+}
+
+func collectLivePeerings(ctx context.Context, nodes []labplanner.NodePlan, links []labplanner.LinkAssigned, nodeMap map[string]ContainerInfo, useSudo bool) []LivePeeringStatus {
+	peerToNode := peerIPNodeMap(nodes, links)
+
+	type afiQuery struct {
+		Label string
+		Cmd   string
+	}
+	queries := []afiQuery{
+		{Label: "ipv4/unicast", Cmd: "show bgp ipv4 unicast summary json"},
+		{Label: "l2vpn/evpn", Cmd: "show bgp l2vpn evpn summary json"},
+	}
+
+	merged := map[string]LivePeeringStatus{}
+	for _, n := range nodes {
+		ci, ok := nodeMap[n.Name]
+		if !ok || !isFRRNode(ci) {
+			continue
+		}
+		for _, q := range queries {
+			data, err := runFRRShowJSON(ctx, ci, useSudo, q.Cmd)
+			if err != nil {
+				continue
+			}
+			peers := extractFRRPeerSummaries(data)
+			for _, p := range peers {
+				peerNode, ok := peerToNode[normalizePeerIP(p.Peer)]
+				if !ok || peerNode == "" || peerNode == n.Name {
+					continue
+				}
+				entry := peeringFromSummary(n.Name, peerNode, q.Label, p)
+				key := peeringKey(entry)
+				existing, exists := merged[key]
+				if !exists {
+					merged[key] = entry
+					continue
+				}
+				// Prefer "up" if either side reports established.
+				if existing.State != "up" && entry.State == "up" {
+					merged[key] = entry
+				}
+			}
+		}
+	}
+
+	out := make([]LivePeeringStatus, 0, len(merged))
+	for _, p := range merged {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].A == out[j].A {
+			if out[i].B == out[j].B {
+				return out[i].AfiSafi < out[j].AfiSafi
+			}
+			return out[i].B < out[j].B
+		}
+		return out[i].A < out[j].A
+	})
+	return out
+}
+
+func peerIPNodeMap(nodes []labplanner.NodePlan, links []labplanner.LinkAssigned) map[string]string {
+	out := map[string]string{}
+	for _, n := range nodes {
+		if ip := normalizePeerIP(n.Loopback); ip != "" {
+			out[ip] = n.Name
+		}
+	}
+	for _, l := range links {
+		if ip := normalizePeerIP(l.AIP); ip != "" {
+			if _, exists := out[ip]; !exists {
+				out[ip] = l.A
+			}
+		}
+		if ip := normalizePeerIP(l.BIP); ip != "" {
+			if _, exists := out[ip]; !exists {
+				out[ip] = l.B
+			}
+		}
+	}
+	return out
+}
+
+func normalizePeerIP(s string) string {
+	ip := strings.TrimSpace(s)
+	if ip == "" {
+		return ""
+	}
+	if i := strings.IndexByte(ip, '/'); i > 0 {
+		ip = ip[:i]
+	}
+	return ip
+}
+
+func peeringFromSummary(a, b, afi string, p frrPeerSummary) LivePeeringStatus {
+	state := "down"
+	if p.Established {
+		state = "up"
+	}
+	return LivePeeringStatus{
+		A:       a,
+		B:       b,
+		AfiSafi: afi,
+		State:   state,
+		Detail:  p.State,
+	}
+}
+
+func peeringKey(p LivePeeringStatus) string {
+	a, b := p.A, p.B
+	if a > b {
+		a, b = b, a
+	}
+	return a + "|" + b + "|" + p.AfiSafi
+}
+
+func reconcilePeeringsWithLinks(peerings []LivePeeringStatus, links []LiveLinkStatus) []LivePeeringStatus {
+	linkState := map[string]string{}
+	for _, l := range links {
+		key := nodePairKey(l.A, l.B)
+		if key == "" {
+			continue
+		}
+		// If any direct link between the same node-pair is up, keep pair up.
+		if prev, ok := linkState[key]; ok && prev == "up" {
+			continue
+		}
+		linkState[key] = l.State
+	}
+
+	out := make([]LivePeeringStatus, 0, len(peerings))
+	for _, p := range peerings {
+		key := nodePairKey(p.A, p.B)
+		if ls, ok := linkState[key]; ok && ls == "down" {
+			p.State = "down"
+			if p.Detail == "" {
+				p.Detail = "down (direct link down)"
+			} else {
+				p.Detail = p.Detail + "; direct link down"
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func nodePairKey(a, b string) string {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return ""
+	}
+	if a > b {
+		a, b = b, a
+	}
+	return a + "|" + b
+}
+
 func (h *Handlers) LabNodes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -655,7 +1186,7 @@ func (h *Handlers) Inspect(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	out, err := runInspect(ctx, labAbs, req.UseSudo)
+	out, err := runInspectFn(ctx, labAbs, req.UseSudo)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, inspectResp{OK: false, Error: "inspect failed: " + err.Error()})
 		return
@@ -835,7 +1366,7 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), tout)
 	defer cancel()
-	out, err := runInspect(ctx, labAbs, req.UseSudo)
+	out, err := runInspectFn(ctx, labAbs, req.UseSudo)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, HealthResp{OK: false, Error: "inspect failed: " + err.Error()})
 		return

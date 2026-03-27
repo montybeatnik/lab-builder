@@ -3,12 +3,13 @@
 {{ define "viewer_content" }}
 <header class="hero">
   <div>
-    <p class="eyebrow">Arista Lab</p>
+    <p class="eyebrow">LAB BUILDER</p>
     <h1>Lab Viewer</h1>
     <p class="subhead">Inspect deployed topology, edge nodes, and configured protocols.</p>
     <nav class="page-nav">
       <a href="/">Build</a>
       <a href="/viewer" class="active">Lab Viewer</a>
+      <a href="/live">Live Topology</a>
       <a href="/lab">Health</a>
     </nav>
   </div>
@@ -41,8 +42,8 @@
       <h2>Topology</h2>
       <button id="viewerRefresh" class="ghost" type="button">Refresh</button>
     </div>
-    <div class="graph-wrap">
-      <svg id="viewerGraph" viewBox="0 0 1000 520" role="img" aria-label="Lab topology"></svg>
+    <div class="graph-wrap future-wrap">
+      <svg id="viewerGraph" class="future-mode" viewBox="0 0 1000 520" role="img" aria-label="Lab topology"></svg>
     </div>
   </div>
   <div class="panel">

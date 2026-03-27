@@ -47,6 +47,9 @@
     const svg = $('viewerGraph');
     if (!svg) return;
     svg.innerHTML = '';
+    svg.classList.add('future-mode');
+    const wrap = svg.closest('.graph-wrap');
+    if (wrap) wrap.classList.add('future-wrap');
     const nodes = data.nodes || [];
     const links = data.links || [];
     const nodeNames = nodes.map(n => n.name);
@@ -71,21 +74,71 @@
     nodeNames.forEach(name => {
       const pos = layout[name];
       if (!pos) return;
-      const group = document.createElementNS(svgNS, 'g');
-      group.setAttribute('class', `node ${pos.role}`);
-      const circle = document.createElementNS(svgNS, 'circle');
-      circle.setAttribute('cx', pos.x);
-      circle.setAttribute('cy', pos.y);
-      circle.setAttribute('r', 18);
-      const label = document.createElementNS(svgNS, 'text');
-      label.setAttribute('x', pos.x);
-      label.setAttribute('y', pos.y + 34);
-      label.setAttribute('text-anchor', 'middle');
-      label.textContent = name;
-      group.appendChild(circle);
-      group.appendChild(label);
-      svg.appendChild(group);
+      drawStyledNode(svg, name, pos);
     });
+  }
+
+  function drawStyledNode(svg, name, pos) {
+    const group = document.createElementNS(svgNS, 'g');
+    const isServer = pos.role === 'edge';
+    group.setAttribute('class', `node ${pos.role} ${isServer ? 'node-server' : 'node-switch'}`);
+    if (isServer) {
+      const rect = document.createElementNS(svgNS, 'rect');
+      rect.setAttribute('x', pos.x - 26);
+      rect.setAttribute('y', pos.y - 13);
+      rect.setAttribute('width', 52);
+      rect.setAttribute('height', 26);
+      rect.setAttribute('rx', 4);
+      rect.setAttribute('class', 'server-chassis');
+      group.appendChild(rect);
+      for (let i = 0; i < 3; i++) {
+        const bay = document.createElementNS(svgNS, 'line');
+        const y = pos.y - 7 + (i * 7);
+        bay.setAttribute('x1', pos.x - 18);
+        bay.setAttribute('y1', y);
+        bay.setAttribute('x2', pos.x + 14);
+        bay.setAttribute('y2', y);
+        bay.setAttribute('class', 'server-bay');
+        group.appendChild(bay);
+      }
+      const led = document.createElementNS(svgNS, 'circle');
+      led.setAttribute('cx', pos.x + 20);
+      led.setAttribute('cy', pos.y);
+      led.setAttribute('r', 2.6);
+      led.setAttribute('class', 'server-led');
+      group.appendChild(led);
+    } else {
+      const rect = document.createElementNS(svgNS, 'rect');
+      rect.setAttribute('x', pos.x - 30);
+      rect.setAttribute('y', pos.y - 11);
+      rect.setAttribute('width', 60);
+      rect.setAttribute('height', 22);
+      rect.setAttribute('rx', 6);
+      rect.setAttribute('class', 'switch-chassis');
+      group.appendChild(rect);
+      const top = document.createElementNS(svgNS, 'line');
+      top.setAttribute('x1', pos.x - 24);
+      top.setAttribute('y1', pos.y - 5);
+      top.setAttribute('x2', pos.x + 24);
+      top.setAttribute('y2', pos.y - 5);
+      top.setAttribute('class', 'switch-topline');
+      group.appendChild(top);
+      for (let i = 0; i < 6; i++) {
+        const port = document.createElementNS(svgNS, 'circle');
+        port.setAttribute('cx', pos.x - 20 + (i * 8));
+        port.setAttribute('cy', pos.y + 4);
+        port.setAttribute('r', 1.6);
+        port.setAttribute('class', 'switch-port');
+        group.appendChild(port);
+      }
+    }
+    const label = document.createElementNS(svgNS, 'text');
+    label.setAttribute('x', pos.x);
+    label.setAttribute('y', pos.y + 34);
+    label.setAttribute('text-anchor', 'middle');
+    label.textContent = name;
+    group.appendChild(label);
+    svg.appendChild(group);
   }
 
   function collectEdgeNames(links) {

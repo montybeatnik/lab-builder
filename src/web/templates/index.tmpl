@@ -3,12 +3,13 @@
 {{ define "index_content" }}
 <header class="hero">
   <div>
-    <p class="eyebrow">Arista Lab</p>
+    <p class="eyebrow">LAB BUILDER</p>
     <h1>Topology Studio</h1>
     <p class="subhead">Design a fabric, validate addressing, and get a ready-to-run plan for your lab.</p>
     <nav class="page-nav">
       <a href="/" class="active">Build</a>
       <a href="/viewer">Lab Viewer</a>
+      <a href="/live">Live Topology</a>
       <a href="/lab">Health</a>
     </nav>
   </div>
@@ -98,8 +99,8 @@
       <h2>Graph preview</h2>
       <button id="refreshGraph" class="ghost" type="button">Refresh</button>
     </div>
-    <div class="graph-wrap">
-      <svg id="graph" viewBox="0 0 1000 520" role="img" aria-label="Topology graph preview"></svg>
+    <div class="graph-wrap future-wrap">
+      <svg id="graph" class="future-mode" viewBox="0 0 1000 520" role="img" aria-label="Topology graph preview"></svg>
     </div>
   <div class="legend">
       <div><span class="swatch spine"></span>Spine / Hub</div>
