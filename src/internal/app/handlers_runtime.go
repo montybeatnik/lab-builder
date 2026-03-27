@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/montybeatnik/arista-lab/laber/labplanner"
 	"github.com/montybeatnik/arista-lab/laber/labstore"
 	"github.com/montybeatnik/arista-lab/laber/pkgs/arista"
 	"github.com/montybeatnik/arista-lab/laber/pkgs/renderer"
@@ -657,11 +658,18 @@ func (h *Handlers) TopologyLive(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	var peerings []LivePeeringStatus
+	if req.ShowPeerings {
+		peerings = collectLivePeerings(ctx, plan.Nodes, plan.Links, nodeContainer, req.UseSudo)
+		peerings = reconcilePeeringsWithLinks(peerings, linkStatuses)
+	}
+
 	writeJSON(w, http.StatusOK, LiveTopologyResponse{
 		OK:       true,
 		LabName:  labName,
 		Nodes:    nodes,
 		Links:    linkStatuses,
+		Peerings: peerings,
 		Summary:  summary,
 		PolledAt: time.Now().Format(time.RFC3339),
 	})
@@ -737,6 +745,163 @@ func combineLinkState(aState, bState string) string {
 		return "down"
 	}
 	return "unknown"
+}
+
+func collectLivePeerings(ctx context.Context, nodes []labplanner.NodePlan, links []labplanner.LinkAssigned, nodeMap map[string]ContainerInfo, useSudo bool) []LivePeeringStatus {
+	peerToNode := peerIPNodeMap(nodes, links)
+
+	type afiQuery struct {
+		Label string
+		Cmd   string
+	}
+	queries := []afiQuery{
+		{Label: "ipv4/unicast", Cmd: "show bgp ipv4 unicast summary json"},
+		{Label: "l2vpn/evpn", Cmd: "show bgp l2vpn evpn summary json"},
+	}
+
+	merged := map[string]LivePeeringStatus{}
+	for _, n := range nodes {
+		ci, ok := nodeMap[n.Name]
+		if !ok || !isFRRNode(ci) {
+			continue
+		}
+		for _, q := range queries {
+			data, err := runFRRShowJSON(ctx, ci, useSudo, q.Cmd)
+			if err != nil {
+				continue
+			}
+			peers := extractFRRPeerSummaries(data)
+			for _, p := range peers {
+					peerNode, ok := peerToNode[normalizePeerIP(p.Peer)]
+					if !ok || peerNode == "" || peerNode == n.Name {
+						continue
+					}
+				entry := peeringFromSummary(n.Name, peerNode, q.Label, p)
+				key := peeringKey(entry)
+				existing, exists := merged[key]
+				if !exists {
+					merged[key] = entry
+					continue
+				}
+				// Prefer "up" if either side reports established.
+				if existing.State != "up" && entry.State == "up" {
+					merged[key] = entry
+				}
+			}
+		}
+	}
+
+	out := make([]LivePeeringStatus, 0, len(merged))
+	for _, p := range merged {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].A == out[j].A {
+			if out[i].B == out[j].B {
+				return out[i].AfiSafi < out[j].AfiSafi
+			}
+			return out[i].B < out[j].B
+		}
+		return out[i].A < out[j].A
+	})
+	return out
+}
+
+func peerIPNodeMap(nodes []labplanner.NodePlan, links []labplanner.LinkAssigned) map[string]string {
+	out := map[string]string{}
+	for _, n := range nodes {
+		if ip := normalizePeerIP(n.Loopback); ip != "" {
+			out[ip] = n.Name
+		}
+	}
+	for _, l := range links {
+		if ip := normalizePeerIP(l.AIP); ip != "" {
+			if _, exists := out[ip]; !exists {
+				out[ip] = l.A
+			}
+		}
+		if ip := normalizePeerIP(l.BIP); ip != "" {
+			if _, exists := out[ip]; !exists {
+				out[ip] = l.B
+			}
+		}
+	}
+	return out
+}
+
+func normalizePeerIP(s string) string {
+	ip := strings.TrimSpace(s)
+	if ip == "" {
+		return ""
+	}
+	if i := strings.IndexByte(ip, '/'); i > 0 {
+		ip = ip[:i]
+	}
+	return ip
+}
+
+func peeringFromSummary(a, b, afi string, p frrPeerSummary) LivePeeringStatus {
+	state := "down"
+	if p.Established {
+		state = "up"
+	}
+	return LivePeeringStatus{
+		A:       a,
+		B:       b,
+		AfiSafi: afi,
+		State:   state,
+		Detail:  p.State,
+	}
+}
+
+func peeringKey(p LivePeeringStatus) string {
+	a, b := p.A, p.B
+	if a > b {
+		a, b = b, a
+	}
+	return a + "|" + b + "|" + p.AfiSafi
+}
+
+func reconcilePeeringsWithLinks(peerings []LivePeeringStatus, links []LiveLinkStatus) []LivePeeringStatus {
+	linkState := map[string]string{}
+	for _, l := range links {
+		key := nodePairKey(l.A, l.B)
+		if key == "" {
+			continue
+		}
+		// If any direct link between the same node-pair is up, keep pair up.
+		if prev, ok := linkState[key]; ok && prev == "up" {
+			continue
+		}
+		linkState[key] = l.State
+	}
+
+	out := make([]LivePeeringStatus, 0, len(peerings))
+	for _, p := range peerings {
+		key := nodePairKey(p.A, p.B)
+		if ls, ok := linkState[key]; ok && ls == "down" {
+			p.State = "down"
+			if p.Detail == "" {
+				p.Detail = "down (direct link down)"
+			} else {
+				p.Detail = p.Detail + "; direct link down"
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func nodePairKey(a, b string) string {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return ""
+	}
+	if a > b {
+		a, b = b, a
+	}
+	return a + "|" + b
 }
 
 func (h *Handlers) LabNodes(w http.ResponseWriter, r *http.Request) {

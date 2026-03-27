@@ -242,8 +242,9 @@ type LabNodeConfigResponse struct {
 }
 
 type LiveTopologyRequest struct {
-	LabName string `json:"labName"`
-	UseSudo bool   `json:"sudo"`
+	LabName      string `json:"labName"`
+	UseSudo      bool   `json:"sudo"`
+	ShowPeerings bool   `json:"showPeerings"`
 }
 
 type LiveEndpointStatus struct {
@@ -268,12 +269,21 @@ type LiveSummary struct {
 	Total   int `json:"total"`
 }
 
+type LivePeeringStatus struct {
+	A       string `json:"a"`
+	B       string `json:"b"`
+	AfiSafi string `json:"afiSafi"`
+	State   string `json:"state"`
+	Detail  string `json:"detail,omitempty"`
+}
+
 type LiveTopologyResponse struct {
-	OK       bool             `json:"ok"`
-	Error    string           `json:"error,omitempty"`
-	LabName  string           `json:"labName,omitempty"`
-	Nodes    []NodePlanJSON   `json:"nodes,omitempty"`
-	Links    []LiveLinkStatus `json:"links,omitempty"`
-	Summary  LiveSummary      `json:"summary,omitempty"`
-	PolledAt string           `json:"polledAt,omitempty"`
+	OK       bool               `json:"ok"`
+	Error    string             `json:"error,omitempty"`
+	LabName  string             `json:"labName,omitempty"`
+	Nodes    []NodePlanJSON     `json:"nodes,omitempty"`
+	Links    []LiveLinkStatus   `json:"links,omitempty"`
+	Peerings []LivePeeringStatus `json:"peerings,omitempty"`
+	Summary  LiveSummary        `json:"summary,omitempty"`
+	PolledAt string             `json:"polledAt,omitempty"`
 }

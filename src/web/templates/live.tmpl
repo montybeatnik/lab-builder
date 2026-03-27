@@ -52,28 +52,42 @@
       Show protocol peerings
       <span class="checkline">
         <input id="liveShowPeerings" type="checkbox">
-        <span>Staged next: BGP/AFI-SAFI overlays</span>
+        <span>Display BGP peerings and AFI/SAFI overlays</span>
       </span>
     </label>
   </div>
 </section>
 
 <section class="grid">
-  <div class="panel graph-panel">
+  <div class="panel graph-panel live-graph-panel">
     <div class="graph-header">
       <h2>Live Graph</h2>
-      <span id="livePolledAt" class="muted"></span>
+      <div class="live-graph-tools">
+        <button id="livePanLeftBtn" class="ghost" type="button">←</button>
+        <button id="livePanUpBtn" class="ghost" type="button">↑</button>
+        <button id="livePanDownBtn" class="ghost" type="button">↓</button>
+        <button id="livePanRightBtn" class="ghost" type="button">→</button>
+        <button id="liveZoomOutBtn" class="ghost" type="button">-</button>
+        <button id="liveZoomResetBtn" class="ghost" type="button">Reset</button>
+        <button id="liveZoomInBtn" class="ghost" type="button">+</button>
+        <span id="liveZoomLabel" class="muted">100%</span>
+        <span id="livePolledAt" class="muted"></span>
+      </div>
     </div>
-    <div class="graph-wrap">
-      <svg id="liveGraph" viewBox="0 0 1000 520" role="img" aria-label="Live topology graph"></svg>
+    <div class="graph-wrap live-graph-wrap future-wrap">
+      <svg id="liveGraph" class="live-graph future-mode" viewBox="0 0 1400 760" role="img" aria-label="Live topology graph"></svg>
     </div>
     <div class="legend">
       <div><span class="swatch live-up"></span>Link up</div>
       <div><span class="swatch live-down"></span>Link down</div>
       <div><span class="swatch live-unknown"></span>Link unknown</div>
+      <div><span class="swatch peering-up"></span>Peering up</div>
+      <div><span class="swatch peering-down"></span>Peering down</div>
+      <div><span class="swatch switch"></span>Switch</div>
+      <div><span class="swatch server"></span>Server</div>
     </div>
   </div>
-  <div class="panel">
+  <div class="panel live-details-panel">
     <h2>Details</h2>
     <pre id="liveDetails" class="result-block"></pre>
   </div>

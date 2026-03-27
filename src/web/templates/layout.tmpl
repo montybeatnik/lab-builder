@@ -12,7 +12,7 @@
   <script src="/static/live.js" defer></script>
 </head>
 <body>
-  <main class="container">
+  <main class="container page-{{ .Page }}">
     {{ if eq .Page "health" }}{{ template "lab_content" . }}{{ else if eq .Page "viewer" }}{{ template "viewer_content" . }}{{ else if eq .Page "live" }}{{ template "live_content" . }}{{ else }}{{ template "index_content" . }}{{ end }}
   </main>
 </body>

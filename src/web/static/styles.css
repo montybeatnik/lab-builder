@@ -28,6 +28,11 @@ body {
   margin: 0 auto;
   padding: 2.5rem 2rem 4rem;
 }
+.container.page-live {
+  max-width: min(98vw, 1900px);
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
 
 .hero {
   display: flex;
@@ -234,11 +239,31 @@ button.ghost {
 
 .graph-panel { display: flex; flex-direction: column; gap: 1rem; }
 .graph-header { display: flex; justify-content: space-between; align-items: center; }
+.live-graph-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.live-graph-tools button {
+  padding: 0.35rem 0.7rem;
+}
 .graph-wrap {
   border-radius: 1rem;
   background: linear-gradient(120deg, #f8f5f2, #eff6ff);
   padding: 1rem;
   border: 1px solid var(--stroke);
+}
+.live-graph-wrap {
+  min-height: 680px;
+}
+.live-graph {
+  width: 100%;
+  height: 640px;
+  display: block;
+  cursor: grab;
+}
+.live-graph:active {
+  cursor: grabbing;
 }
 
 .legend {
@@ -263,18 +288,101 @@ button.ghost {
 .swatch.live-up { background: #2f9b70; }
 .swatch.live-down { background: #c8451d; }
 .swatch.live-unknown { background: #8a8a8a; }
+.swatch.peering-up { background: #2563eb; }
+.swatch.peering-down { background: #9a3412; }
+.swatch.switch { background: #22d3ee; }
+.swatch.server { background: #f59e0b; }
 
-.edge { stroke: #a8a19a; stroke-width: 2; opacity: 0.7; }
-.node circle { stroke: #3a3430; stroke-width: 1.5; }
-.node.spine circle { fill: var(--sun); }
-.node.leaf circle { fill: var(--mint); }
-.node.mesh circle { fill: var(--sky); }
-.node.edge circle { fill: var(--accent); }
+.edge { stroke: #8b93ac; stroke-width: 2.2; opacity: 0.88; }
 .node text { font-size: 0.75rem; fill: #423f3c; }
 .live-link { stroke-width: 3; opacity: 0.95; }
 .live-link-up { stroke: #2f9b70; }
 .live-link-down { stroke: #c8451d; }
 .live-link-unknown { stroke: #8a8a8a; }
+.live-peering {
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  opacity: 0.95;
+}
+.live-peering-up { stroke: #2563eb; }
+.live-peering-down { stroke: #9a3412; }
+.live-peering-label {
+  font-size: 0.86rem;
+  font-weight: 700;
+  fill: #111827;
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-width: 3px;
+}
+.future-wrap {
+  background:
+    radial-gradient(circle at 20% 15%, rgba(34, 211, 238, 0.22), transparent 45%),
+    radial-gradient(circle at 82% 20%, rgba(99, 102, 241, 0.20), transparent 42%),
+    linear-gradient(125deg, #0c1326, #111a33 52%, #0f1a3a);
+}
+.future-mode .live-link-up {
+  stroke: #00f5d4;
+  filter: drop-shadow(0 0 4px rgba(0, 245, 212, 0.8));
+}
+.future-mode .edge {
+  stroke: #7dd3fc;
+  filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.45));
+}
+.future-mode .live-link-down {
+  stroke: #ff4d6d;
+  filter: drop-shadow(0 0 4px rgba(255, 77, 109, 0.7));
+}
+.future-mode .live-link-unknown {
+  stroke: #94a3b8;
+}
+.future-mode .live-peering-up {
+  stroke: #7dd3fc;
+}
+.future-mode .live-peering-down {
+  stroke: #fda4af;
+}
+.future-mode .live-peering-label {
+  fill: #e2e8f0;
+  stroke: #0f172a;
+}
+.future-mode .node text {
+  fill: #e5e7eb;
+  font-weight: 700;
+}
+.switch-chassis {
+  fill: #0f172a;
+  stroke: #7dd3fc;
+  stroke-width: 1.8;
+}
+.node.spine .switch-chassis {
+  stroke: #22d3ee;
+}
+.node.leaf .switch-chassis {
+  stroke: #86efac;
+}
+.node.mesh .switch-chassis {
+  stroke: #a5b4fc;
+}
+.switch-topline {
+  stroke: #67e8f9;
+  stroke-width: 1.3;
+}
+.switch-port {
+  fill: #93c5fd;
+}
+.server-chassis {
+  fill: #111827;
+  stroke: #f59e0b;
+  stroke-width: 1.8;
+}
+.server-bay {
+  stroke: #fcd34d;
+  stroke-width: 1.1;
+}
+.server-led {
+  fill: #34d399;
+  filter: drop-shadow(0 0 3px rgba(52, 211, 153, 0.8));
+}
 
 .custom-links { margin-top: 1.2rem; }
 .links-header { display: flex; justify-content: space-between; align-items: center; }
@@ -581,6 +689,16 @@ a.monitor-link {
   transform: scale(1.1);
 }
 
+.page-live .grid {
+  grid-template-columns: minmax(900px, 2.4fr) minmax(300px, 1fr);
+}
+.live-graph-panel {
+  min-width: 0;
+}
+.live-details-panel {
+  min-width: 0;
+}
+
 .tour-inline {
   margin-top: 0.9rem;
 }
@@ -648,4 +766,5 @@ a.monitor-link {
 @media (max-width: 900px) {
   .hero { flex-direction: column; }
   .status-card { width: 100%; }
+  .page-live .grid { grid-template-columns: 1fr; }
 }
