@@ -260,6 +260,9 @@ button.ghost {
 .swatch.leaf { background: var(--mint); }
 .swatch.mesh { background: var(--sky); }
 .swatch.edge { background: var(--accent); }
+.swatch.live-up { background: #2f9b70; }
+.swatch.live-down { background: #c8451d; }
+.swatch.live-unknown { background: #8a8a8a; }
 
 .edge { stroke: #a8a19a; stroke-width: 2; opacity: 0.7; }
 .node circle { stroke: #3a3430; stroke-width: 1.5; }
@@ -268,6 +271,10 @@ button.ghost {
 .node.mesh circle { fill: var(--sky); }
 .node.edge circle { fill: var(--accent); }
 .node text { font-size: 0.75rem; fill: #423f3c; }
+.live-link { stroke-width: 3; opacity: 0.95; }
+.live-link-up { stroke: #2f9b70; }
+.live-link-down { stroke: #c8451d; }
+.live-link-unknown { stroke: #8a8a8a; }
 
 .custom-links { margin-top: 1.2rem; }
 .links-header { display: flex; justify-content: space-between; align-items: center; }

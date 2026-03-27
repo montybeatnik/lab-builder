@@ -1,0 +1,81 @@
+{{ define "live_title" }}Live Topology{{ end }}
+
+{{ define "live_content" }}
+<header class="hero">
+  <div>
+    <p class="eyebrow">Arista Lab</p>
+    <h1>Live Topology</h1>
+    <p class="subhead">Near-real-time topology telemetry. Link state is polled from live node interfaces.</p>
+    <nav class="page-nav">
+      <a href="/">Build</a>
+      <a href="/viewer">Lab Viewer</a>
+      <a href="/live" class="active">Live Topology</a>
+      <a href="/lab">Health</a>
+    </nav>
+  </div>
+  <div class="status-card">
+    <div class="status-line">
+      <span id="liveStatus" class="status status-idle">Select a lab</span>
+    </div>
+    <div class="status-meta">
+      <div>Base dir</div>
+      <code>{{ .BaseDir }}</code>
+    </div>
+  </div>
+</header>
+
+<section class="panel">
+  <h2>Live Controls</h2>
+  <div class="form-grid">
+    <label>
+      Lab
+      <select id="liveLabSelect">
+        <option value="">Loading...</option>
+      </select>
+    </label>
+    <label>
+      Poll interval (seconds)
+      <input id="livePollSec" type="number" min="1" max="30" value="3">
+    </label>
+    <label>
+      Use sudo
+      <select id="liveUseSudo">
+        <option value="true" selected>yes</option>
+        <option value="false">no</option>
+      </select>
+    </label>
+  </div>
+  <div class="validate-actions">
+    <button id="liveStartBtn" type="button">Start</button>
+    <button id="liveStopBtn" class="ghost" type="button">Stop</button>
+    <label class="inline-check">
+      Show protocol peerings
+      <span class="checkline">
+        <input id="liveShowPeerings" type="checkbox">
+        <span>Staged next: BGP/AFI-SAFI overlays</span>
+      </span>
+    </label>
+  </div>
+</section>
+
+<section class="grid">
+  <div class="panel graph-panel">
+    <div class="graph-header">
+      <h2>Live Graph</h2>
+      <span id="livePolledAt" class="muted"></span>
+    </div>
+    <div class="graph-wrap">
+      <svg id="liveGraph" viewBox="0 0 1000 520" role="img" aria-label="Live topology graph"></svg>
+    </div>
+    <div class="legend">
+      <div><span class="swatch live-up"></span>Link up</div>
+      <div><span class="swatch live-down"></span>Link down</div>
+      <div><span class="swatch live-unknown"></span>Link unknown</div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Details</h2>
+    <pre id="liveDetails" class="result-block"></pre>
+  </div>
+</section>
+{{ end }}

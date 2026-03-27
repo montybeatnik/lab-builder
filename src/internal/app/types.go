@@ -240,3 +240,40 @@ type LabNodeConfigResponse struct {
 	Daemons  string `json:"daemons,omitempty"`
 	Startup  string `json:"startup,omitempty"`
 }
+
+type LiveTopologyRequest struct {
+	LabName string `json:"labName"`
+	UseSudo bool   `json:"sudo"`
+}
+
+type LiveEndpointStatus struct {
+	Node  string `json:"node"`
+	Iface string `json:"iface"`
+	State string `json:"state"`
+}
+
+type LiveLinkStatus struct {
+	A         string               `json:"a"`
+	B         string               `json:"b"`
+	AIf       string               `json:"aIf"`
+	BIf       string               `json:"bIf"`
+	State     string               `json:"state"`
+	Endpoints []LiveEndpointStatus `json:"endpoints,omitempty"`
+}
+
+type LiveSummary struct {
+	Up      int `json:"up"`
+	Down    int `json:"down"`
+	Unknown int `json:"unknown"`
+	Total   int `json:"total"`
+}
+
+type LiveTopologyResponse struct {
+	OK       bool             `json:"ok"`
+	Error    string           `json:"error,omitempty"`
+	LabName  string           `json:"labName,omitempty"`
+	Nodes    []NodePlanJSON   `json:"nodes,omitempty"`
+	Links    []LiveLinkStatus `json:"links,omitempty"`
+	Summary  LiveSummary      `json:"summary,omitempty"`
+	PolledAt string           `json:"polledAt,omitempty"`
+}

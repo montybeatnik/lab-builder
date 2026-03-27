@@ -558,6 +558,187 @@ func (h *Handlers) LabPlan(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handlers) TopologyLive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req LiveTopologyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, LiveTopologyResponse{OK: false, Error: "bad JSON: " + err.Error()})
+		return
+	}
+	labName := strings.TrimSpace(req.LabName)
+	if labName == "" {
+		writeJSON(w, http.StatusBadRequest, LiveTopologyResponse{OK: false, Error: "labName is required"})
+		return
+	}
+	if !isSafeName(labName) {
+		writeJSON(w, http.StatusBadRequest, LiveTopologyResponse{OK: false, Error: "labName must be alphanumeric, dash, or underscore"})
+		return
+	}
+	labPath := filepath.Join(h.cfg.BaseDir, labName, "lab.clab.yml")
+	if _, err := os.Stat(labPath); err != nil {
+		writeJSON(w, http.StatusBadRequest, LiveTopologyResponse{OK: false, Error: "lab file not found at " + labPath})
+		return
+	}
+
+	db, err := labstore.OpenLabDB(h.cfg.BaseDir)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, LiveTopologyResponse{OK: false, Error: err.Error()})
+		return
+	}
+	defer db.Close()
+	plan, err := labstore.LoadLabPlan(db, labName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, LiveTopologyResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	out, err := runInspect(ctx, labPath, req.UseSudo)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, LiveTopologyResponse{OK: false, Error: "inspect failed: " + err.Error()})
+		return
+	}
+	containers, err := inspectNodesFromOutput(out)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, LiveTopologyResponse{OK: false, Error: "parse inspect: " + err.Error()})
+		return
+	}
+	nodeContainer := map[string]ContainerInfo{}
+	for _, c := range containers {
+		name := shortNodeName(c.Name, labName)
+		if name == "" {
+			continue
+		}
+		nodeContainer[name] = c
+	}
+
+	var nodes []NodePlanJSON
+	for _, n := range plan.Nodes {
+		nodes = append(nodes, NodePlanJSON{
+			Name:       n.Name,
+			Role:       n.Role,
+			ASN:        n.ASN,
+			Loopback:   n.Loopback,
+			EdgeIP:     n.EdgeIP,
+			EdgePrefix: n.EdgePrefix,
+		})
+	}
+
+	ifaceStateCache := map[string]string{}
+	linkStatuses := make([]LiveLinkStatus, 0, len(plan.Links))
+	summary := LiveSummary{Total: len(plan.Links)}
+	for _, link := range plan.Links {
+		aState := endpointOperState(ctx, nodeContainer, ifaceStateCache, link.A, link.AIf, req.UseSudo)
+		bState := endpointOperState(ctx, nodeContainer, ifaceStateCache, link.B, link.BIf, req.UseSudo)
+		state := combineLinkState(aState, bState)
+		switch state {
+		case "up":
+			summary.Up++
+		case "down":
+			summary.Down++
+		default:
+			summary.Unknown++
+		}
+		linkStatuses = append(linkStatuses, LiveLinkStatus{
+			A:     link.A,
+			B:     link.B,
+			AIf:   link.AIf,
+			BIf:   link.BIf,
+			State: state,
+			Endpoints: []LiveEndpointStatus{
+				{Node: link.A, Iface: link.AIf, State: aState},
+				{Node: link.B, Iface: link.BIf, State: bState},
+			},
+		})
+	}
+
+	writeJSON(w, http.StatusOK, LiveTopologyResponse{
+		OK:       true,
+		LabName:  labName,
+		Nodes:    nodes,
+		Links:    linkStatuses,
+		Summary:  summary,
+		PolledAt: time.Now().Format(time.RFC3339),
+	})
+}
+
+func inspectNodesFromOutput(out []byte) ([]ContainerInfo, error) {
+	var parsed InspectResult
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return nil, err
+	}
+	for _, list := range parsed {
+		return list, nil
+	}
+	return nil, nil
+}
+
+func shortNodeName(containerName, labName string) string {
+	name := strings.TrimSpace(containerName)
+	if name == "" {
+		return ""
+	}
+	prefix := "clab-" + labName + "-"
+	if strings.HasPrefix(name, prefix) {
+		return strings.TrimPrefix(name, prefix)
+	}
+	return name
+}
+
+func endpointOperState(ctx context.Context, nodeMap map[string]ContainerInfo, cache map[string]string, nodeName, ifName string, useSudo bool) string {
+	if strings.TrimSpace(nodeName) == "" || strings.TrimSpace(ifName) == "" {
+		return "unknown"
+	}
+	key := nodeName + "|" + ifName
+	if v, ok := cache[key]; ok {
+		return v
+	}
+	n, ok := nodeMap[nodeName]
+	if !ok {
+		cache[key] = "unknown"
+		return "unknown"
+	}
+	target := n.ContainerID
+	if strings.TrimSpace(target) == "" {
+		target = n.Name
+	}
+	if strings.TrimSpace(target) == "" {
+		cache[key] = "unknown"
+		return "unknown"
+	}
+	cmd := fmt.Sprintf("cat /sys/class/net/%s/operstate 2>/dev/null || echo unknown", ifName)
+	out, err := runContainerCommand(ctx, target, useSudo, "sh", "-lc", cmd)
+	if err != nil {
+		cache[key] = "unknown"
+		return "unknown"
+	}
+	state := strings.ToLower(strings.TrimSpace(string(out)))
+	switch state {
+	case "up":
+		cache[key] = "up"
+	case "down":
+		cache[key] = "down"
+	default:
+		cache[key] = "unknown"
+	}
+	return cache[key]
+}
+
+func combineLinkState(aState, bState string) string {
+	if aState == "up" && bState == "up" {
+		return "up"
+	}
+	if aState == "down" || bState == "down" {
+		return "down"
+	}
+	return "unknown"
+}
+
 func (h *Handlers) LabNodes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

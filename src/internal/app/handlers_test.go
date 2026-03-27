@@ -366,3 +366,23 @@ func TestTopologyDestroy_RunsContainerlabDestroy(t *testing.T) {
 		t.Fatalf("expected containerlab destroy invocation, got %q", joined)
 	}
 }
+
+func TestTopologyLive_MethodNotAllowed(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/topology/live", nil)
+	rec := httptest.NewRecorder()
+	h.TopologyLive(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected %d got %d", http.StatusMethodNotAllowed, rec.Code)
+	}
+}
+
+func TestTopologyLive_BadJSON(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/topology/live", strings.NewReader("{bad"))
+	rec := httptest.NewRecorder()
+	h.TopologyLive(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d got %d", http.StatusBadRequest, rec.Code)
+	}
+}
