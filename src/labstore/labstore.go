@@ -47,6 +47,28 @@ func UpsertLab(db *sql.DB, name, path string) error {
 	return err
 }
 
+func DeleteLab(db *sql.DB, name string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec("DELETE FROM nodes WHERE lab_name = ?", name); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM links WHERE lab_name = ?", name); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM protocols WHERE lab_name = ?", name); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM labs WHERE name = ?", name); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func ListLabs(db *sql.DB) ([]LabRecord, error) {
 	rows, err := db.Query(`
 		SELECT name, path, created_at

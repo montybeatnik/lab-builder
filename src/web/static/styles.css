@@ -148,6 +148,26 @@ h1 {
   margin-bottom: 1.1rem;
 }
 
+.manager-section {
+  margin-bottom: 1rem;
+}
+
+.manager-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.2rem 0 0.7rem;
+}
+
+.manager-section-head h2 {
+  margin: 0;
+}
+
+.manager-section-head p {
+  margin: 0;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--stroke);

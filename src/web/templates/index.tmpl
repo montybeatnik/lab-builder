@@ -1,18 +1,12 @@
-{{ define "index_title" }}Lab Topology Studio{{ end }}
+{{ define "index_title" }}Lab Manager{{ end }}
 
 {{ define "index_content" }}
 <header class="hero">
   <div>
     <p class="eyebrow">LAB BUILDER</p>
-    <h1>Topology Studio</h1>
-    <p class="subhead">Design a fabric, validate addressing, and get a ready-to-run plan for your lab.</p>
-    <nav class="page-nav">
-      <a href="/" class="active">Build</a>
-      <a href="/walkthroughs">Walkthroughs</a>
-      <a href="/viewer">Lab Viewer</a>
-      <a href="/live">Live Topology</a>
-      <a href="/lab">Health</a>
-    </nav>
+    <h1>Lab Manager</h1>
+    <p class="subhead">Design, generate, deploy, and destroy labs from one workflow.</p>
+    {{ template "primary_nav" . }}
   </div>
   <div class="status-card">
     <div class="status-line">
@@ -28,6 +22,11 @@
   </div>
 </header>
 
+<section class="manager-section">
+  <div class="manager-section-head">
+    <h2>Design</h2>
+    <p class="muted">Define topology shape, protocols, addressing, and optional attachments.</p>
+  </div>
 <section class="grid">
   <div class="panel" id="buildTopologyPanel">
     <h2>Topology</h2>
@@ -110,6 +109,7 @@
       <div><span class="swatch edge"></span>Edge</div>
     </div>
   </div>
+</section>
 </section>
 
 <details class="panel collapsible-panel address-panel" data-collapse-key="addressing" id="addressPanel">
@@ -276,6 +276,11 @@ rate(ifOutErrors[5m])</pre>
   </div>
 </details>
 
+<section class="manager-section">
+  <div class="manager-section-head">
+    <h2>Generate</h2>
+    <p class="muted">Validate inputs, preview plan, and generate lab files.</p>
+  </div>
 <details class="panel collapsible-panel validate-panel" open data-collapse-key="validation" id="validationPanel">
   <summary class="panel-summary">
     <div class="validate-header">
@@ -285,16 +290,8 @@ rate(ifOutErrors[5m])</pre>
   <div class="validate-actions">
     <button id="validateBtn" type="button">Validate &amp; Preview</button>
     <button id="buildBtn" class="ghost" type="button">Generate Lab</button>
-    <button id="deployBtn" class="ghost" type="button">Deploy Lab</button>
-    <button id="destroyBtn" class="ghost" type="button">Destroy Lab</button>
   </div>
   <div class="form-grid">
-    <label>
-      Existing lab
-      <select id="builderLabSelect">
-        <option value="">Select a lab...</option>
-      </select>
-    </label>
     <label>
       Lab name
       <input id="labName" type="text" value="arista-lab">
@@ -306,21 +303,9 @@ rate(ifOutErrors[5m])</pre>
         <option value="true">yes</option>
       </select>
     </label>
-    <label>
-      Use sudo for deploy
-      <select id="deploySudo">
-        <option value="true" selected>yes</option>
-        <option value="false">no</option>
-      </select>
-    </label>
-  </div>
-  <div id="deployStatus" class="status-bar" hidden>
-    <div class="status-bar-fill"></div>
-    <div class="status-bar-text">Deploying...</div>
   </div>
   <div id="checks" class="checks"></div>
   <div id="buildResult" class="build-result" hidden></div>
-  <div id="deployResult" class="build-result" hidden></div>
   <details class="plan">
     <summary>Generated plan</summary>
     <pre id="planJson"></pre>
@@ -347,4 +332,39 @@ rate(ifOutErrors[5m])</pre>
   <pre id="configPreview" class="result-block" hidden></pre>
   <pre id="daemonsPreview" class="result-block" hidden></pre>
 </details>
+</section>
+
+<section class="manager-section">
+  <div class="manager-section-head">
+    <h2>Lifecycle</h2>
+    <p class="muted">Deploy or destroy selected labs and review operation output.</p>
+  </div>
+  <div class="panel">
+    <div class="validate-actions">
+      <button id="deployBtn" class="ghost" type="button">Deploy Lab</button>
+      <button id="destroyBtn" class="ghost" type="button">Destroy Lab</button>
+      <button id="deleteBtn" class="ghost" type="button">Delete Lab</button>
+    </div>
+    <div class="form-grid">
+      <label>
+        Existing lab
+        <select id="builderLabSelect">
+          <option value="">Select a lab...</option>
+        </select>
+      </label>
+      <label>
+        Use sudo for lifecycle actions
+        <select id="deploySudo">
+          <option value="true" selected>yes</option>
+          <option value="false">no</option>
+        </select>
+      </label>
+    </div>
+    <div id="deployStatus" class="status-bar" hidden>
+      <div class="status-bar-fill"></div>
+      <div class="status-bar-text">Processing...</div>
+    </div>
+    <div id="deployResult" class="build-result" hidden></div>
+  </div>
+</section>
 {{ end }}

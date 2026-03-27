@@ -370,6 +370,68 @@ func TestTopologyDestroy_RunsContainerlabDestroy(t *testing.T) {
 	}
 }
 
+func TestTopologyDelete_MethodNotAllowed(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/topology/delete", nil)
+	rec := httptest.NewRecorder()
+	h.TopologyDelete(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected %d got %d", http.StatusMethodNotAllowed, rec.Code)
+	}
+}
+
+func TestTopologyDelete_DestroysAndRemovesLabArtifacts(t *testing.T) {
+	base := t.TempDir()
+	labDir := filepath.Join(base, "demo")
+	if err := os.MkdirAll(labDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(labDir, "lab.clab.yml"), []byte("name: demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := labstore.OpenLabDB(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := labstore.UpsertLab(db, "demo", labDir); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	origExec := execCommandContext
+	execCommandContext = func(ctx context.Context, command string, args ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "printf 'destroy ok'")
+	}
+	defer func() { execCommandContext = origExec }()
+
+	h := NewHandlers(Config{BaseDir: base}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/topology/delete", strings.NewReader(`{"labName":"demo","sudo":false}`))
+	rec := httptest.NewRecorder()
+	h.TopologyDelete(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	if _, err := os.Stat(labDir); !os.IsNotExist(err) {
+		t.Fatalf("expected lab directory removed, stat err=%v", err)
+	}
+
+	db, err = labstore.OpenLabDB(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labs, err := labstore.ListLabs(db)
+	_ = db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range labs {
+		if l.Name == "demo" {
+			t.Fatalf("expected lab index record removed, still found %#v", l)
+		}
+	}
+}
+
 func TestTopologyLive_MethodNotAllowed(t *testing.T) {
 	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/topology/live", nil)

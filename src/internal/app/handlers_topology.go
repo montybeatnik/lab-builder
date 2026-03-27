@@ -261,6 +261,57 @@ func (h *Handlers) TopologyDestroy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, DeployResponse{OK: true, Output: string(output), Path: labPath})
 }
 
+func (h *Handlers) TopologyDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req DestroyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "bad JSON: " + err.Error()})
+		return
+	}
+	labName := strings.TrimSpace(req.LabName)
+	if labName == "" {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "lab name is required"})
+		return
+	}
+	if !isSafeName(labName) {
+		writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: "lab name must be alphanumeric, dash, or underscore"})
+		return
+	}
+
+	root := filepath.Join(h.cfg.BaseDir, labName)
+	labPath := filepath.Join(root, "lab.clab.yml")
+	var out []byte
+	if _, err := os.Stat(labPath); err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+		defer cancel()
+		output, err := runContainerlabLifecycle(ctx, "destroy", labPath, req.UseSudo)
+		out = append(out, output...)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, DeployResponse{OK: false, Error: err.Error(), Output: string(output), Path: labPath})
+			return
+		}
+	}
+
+	if err := os.RemoveAll(root); err != nil {
+		writeJSON(w, http.StatusInternalServerError, DeployResponse{OK: false, Error: "delete lab directory failed: " + err.Error(), Output: string(out), Path: root})
+		return
+	}
+	if db, err := labstore.OpenLabDB(h.cfg.BaseDir); err == nil {
+		_ = labstore.DeleteLab(db, labName)
+		_ = db.Close()
+	}
+
+	msg := strings.TrimSpace(string(out))
+	if msg != "" {
+		msg += "\n"
+	}
+	msg += "deleted lab files and index entries"
+	writeJSON(w, http.StatusOK, DeployResponse{OK: true, Output: msg, Path: root})
+}
+
 func runContainerlabLifecycle(ctx context.Context, action, labPath string, useSudo bool) ([]byte, error) {
 	args := []string{"containerlab", action, "-t", labPath}
 	if action == "deploy" {

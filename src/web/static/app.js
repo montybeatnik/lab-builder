@@ -954,6 +954,52 @@
     loadBuilderLabs();
   }
 
+  async function deleteLab() {
+    const labName = $('labName').value.trim();
+    if (!labName) return;
+    const ok = window.confirm(`Permanently delete lab "${labName}"? This destroys any running lab and removes lab files.`);
+    if (!ok) return;
+
+    const payload = {
+      labName,
+      sudo: $('deploySudo').value === 'true'
+    };
+    const result = $('deployResult');
+    const status = $('deployStatus');
+    result.hidden = true;
+    result.textContent = '';
+    status.hidden = false;
+    status.className = 'status-bar running';
+    status.querySelector('.status-bar-text').textContent = 'Deleting...';
+
+    const res = await fetch('/topology/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
+    if (!data.ok) {
+      status.className = 'status-bar fail';
+      status.querySelector('.status-bar-text').textContent = 'Delete failed';
+      result.className = 'build-result fail';
+      result.textContent = (data.error || 'delete failed') + (data.output ? `\n${data.output}` : '');
+      result.hidden = false;
+      sessionStorage.setItem('builder_deploy_result', result.textContent);
+      sessionStorage.setItem('builder_deploy_ok', 'false');
+      return;
+    }
+    status.className = 'status-bar pass';
+    status.querySelector('.status-bar-text').textContent = 'Delete complete';
+    result.className = 'build-result pass';
+    result.textContent = `Delete finished for ${data.path}\n${data.output || ''}`.trim();
+    result.hidden = false;
+    sessionStorage.setItem('builder_deploy_result', result.textContent);
+    sessionStorage.setItem('builder_deploy_ok', 'true');
+    await loadBuilderLabs();
+    $('labName').value = '';
+    syncBuilderLabSelection();
+  }
+
   function collectCustomLinks() {
     const links = [];
     document.querySelectorAll('.link-row').forEach(row => {
@@ -1118,6 +1164,7 @@
     $('buildBtn').addEventListener('click', buildLab);
     $('deployBtn').addEventListener('click', deployLab);
     $('destroyBtn').addEventListener('click', destroyLab);
+    $('deleteBtn').addEventListener('click', deleteLab);
     $('renderConfigBtn').addEventListener('click', renderConfigPreview);
     $('applyProtoDefaultsBtn').addEventListener('click', applyProtocolDefaults);
     $('builderLabSelect').addEventListener('change', syncSelectedBuilderLab);
