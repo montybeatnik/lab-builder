@@ -31,31 +31,119 @@
     input.value = state.selectedID ? `${name} (${status})` : '';
   }
 
+  function ensureTerminalVisible() {
+    const panel = $('walkthroughConsolePanel');
+    if (!panel || panel.hidden) return;
+    const rect = panel.getBoundingClientRect();
+    const viewportH = window.innerHeight || document.documentElement.clientHeight || 800;
+    const desiredTop = Math.floor(viewportH * 0.56);
+    // If terminal starts below preferred viewport zone, bring it up while
+    // keeping topology/steps visible above it.
+    if (rect.top > desiredTop) {
+      window.scrollBy({ top: rect.top - desiredTop, behavior: 'smooth' });
+      return;
+    }
+    // If terminal bottom is clipped, nudge just enough to expose it.
+    const bottomPadding = 16;
+    if (rect.bottom > viewportH - bottomPadding) {
+      window.scrollBy({ top: rect.bottom - (viewportH - bottomPadding), behavior: 'smooth' });
+    }
+  }
+
   function stepsForWalkthrough(id) {
     if (id !== 'evpn-vxlan-stretched-l2-foundation') return [];
     return [
       {
         title: 'Verify Underlay BGP',
         goal: 'Confirm ipv4 unicast BGP adjacencies are established between spine and leaves.',
-        commands: ["vtysh -c 'show ip bgp summary'"],
+        commands: [
+          {
+            node: 'spine1',
+            mode: 'vtysh',
+            lines: [
+              'show ip bgp summary'
+            ]
+          },
+          {
+            node: 'leaf1 / leaf2',
+            mode: 'vtysh',
+            lines: [
+              'show ip bgp summary'
+            ]
+          }
+        ],
         validate: 'All expected neighbors should be Established.'
       },
       {
         title: 'Create Bridge/VXLAN Interface',
         goal: 'Configure a local L2 service construct on each leaf.',
-        commands: ["vtysh -c 'conf t' -c 'interface vxlan100' -c 'vxlan id 100' -c 'vxlan local-tunnelip <leaf-loopback>' -c 'end'"],
+        commands: [
+          'ip link add br100 type bridge',
+          'ip link add vxlan100 type vxlan id 100 local <leaf-loopback> dstport 4789 nolearning',
+          'ip link set vxlan100 master br100',
+          'ip link set eth2 master br100',
+          'ip link set br100 up && ip link set vxlan100 up && ip link set eth2 up'
+        ],
         validate: "Run `ip -d link show vxlan100` on each leaf and confirm the interface is present."
       },
       {
         title: 'Enable EVPN AFI/SAFI',
-        goal: 'Turn up l2vpn evpn neighbor activation under BGP.',
-        commands: ["vtysh -c 'show bgp l2vpn evpn summary'"],
+        goal: 'Configure l2vpn evpn address-family and activate the underlay neighbors.',
+        commands: [
+          {
+            node: 'spine1',
+            mode: 'vtysh',
+            lines: [
+              'conf t',
+              'router bgp <spine-asn>',
+              'address-family l2vpn evpn',
+              'neighbor <leaf1-loopback> activate',
+              'neighbor <leaf2-loopback> activate',
+              'advertise-all-vni',
+              'end',
+              'write memory'
+            ]
+          },
+          {
+            node: 'leaf1',
+            mode: 'vtysh',
+            lines: [
+              'conf t',
+              'router bgp <leaf1-asn>',
+              'address-family l2vpn evpn',
+              'neighbor <spine-loopback> activate',
+              'advertise-all-vni',
+              'end',
+              'write memory'
+            ]
+          },
+          {
+            node: 'leaf2',
+            mode: 'vtysh',
+            lines: [
+              'conf t',
+              'router bgp <leaf2-asn>',
+              'address-family l2vpn evpn',
+              'neighbor <spine-loopback> activate',
+              'advertise-all-vni',
+              'end',
+              'write memory'
+            ]
+          },
+          {
+            node: 'verify',
+            mode: 'vtysh',
+            lines: [
+              'show bgp l2vpn evpn summary'
+            ]
+          }
+        ],
         validate: 'EVPN sessions should be Established once full config is applied.'
       },
       {
         title: 'Map Interfaces Into Bridge',
-        goal: 'Attach edge-facing interface and vxlan interface to the bridge domain.',
-        commands: ['bridge link', 'ip -d link show'],
+        goal: 'Verify edge-facing and vxlan interfaces are in the same bridge domain.',
+        commands: ['bridge link', 'bridge vlan show', 'ip -d link show vxlan100'],
         validate: 'Confirm `eth2` and `vxlan100` are in the same bridge domain.'
       },
       {
@@ -183,10 +271,17 @@
   function renderStepper() {
     const list = $('walkthroughSteps');
     const detail = $('walkthroughStepDetail');
-    if (!list || !detail) return;
+    const detailHeader = $('walkthroughStepHeader');
+    const detailFacts = $('walkthroughStepFacts');
+    const detailCommands = $('walkthroughStepCommands');
+    const detailValidation = $('walkthroughStepValidation');
+    if (!list || !detail || !detailHeader || !detailFacts || !detailCommands || !detailValidation) return;
     if (!state.steps.length) {
       list.innerHTML = '<li class="muted">No steps loaded yet.</li>';
-      detail.textContent = '';
+      detailHeader.textContent = '';
+      detailFacts.textContent = '';
+      detailCommands.innerHTML = '';
+      detailValidation.textContent = '';
       return;
     }
     if (state.stepIndex < 0) state.stepIndex = 0;
@@ -195,7 +290,7 @@
     state.steps.forEach((s, idx) => {
       const li = document.createElement('li');
       li.className = `walkthrough-step${idx === state.stepIndex ? ' active' : ''}`;
-      li.textContent = `${idx + 1}. ${s.title}`;
+      li.textContent = s.title;
       li.addEventListener('click', () => {
         state.stepIndex = idx;
         renderStepper();
@@ -203,16 +298,70 @@
       list.appendChild(li);
     });
     const step = state.steps[state.stepIndex];
-    detail.textContent = [
-      `Step ${state.stepIndex + 1}: ${step.title}`,
-      '',
-      `Goal: ${step.goal}`,
-      '',
-      'Suggested commands:',
-      ...(step.commands || []).map(c => `  ${c}`),
-      '',
-      `Validation: ${step.validate}`
-    ].join('\n');
+    const nodeFacts = (state.plan?.nodes || []).map(n => `${n.name}(asn=${n.asn},loopback=${n.loopback || '-'})`);
+    const leafLoopbacks = (state.plan?.nodes || [])
+      .filter(n => n.role === 'leaf' && n.loopback)
+      .map(n => `${n.name}=${n.loopback}`);
+    const spineLoopbacks = (state.plan?.nodes || [])
+      .filter(n => n.role === 'spine' && n.loopback)
+      .map(n => `${n.name}=${n.loopback}`);
+    const factLines = [`Goal: ${step.goal}`];
+    if (leafLoopbacks.length) {
+      factLines.push('• Leaf loopbacks:');
+      leafLoopbacks.forEach(v => factLines.push(`- ${v}`));
+    }
+    if (spineLoopbacks.length) {
+      factLines.push('• Spine loopbacks:');
+      spineLoopbacks.forEach(v => factLines.push(`- ${v}`));
+    }
+    if (nodeFacts.length) {
+      factLines.push(`• Node facts: ${nodeFacts.join(', ')}`);
+    }
+    detailHeader.textContent = `Step ${state.stepIndex + 1}: ${step.title}`;
+    detailFacts.textContent = factLines.join('\n');
+    detailCommands.innerHTML = '';
+    const commandList = step.commands || [];
+    const shellCommands = commandList.filter(cmd => typeof cmd === 'string');
+    const commandGroups = [];
+    if (shellCommands.length > 0) {
+      commandGroups.push({
+        title: 'Shell',
+        body: shellCommands.join('\n')
+      });
+    }
+    commandList.forEach((cmd) => {
+      if (typeof cmd === 'string') return;
+      const title = `${cmd.node || 'node'}${cmd.mode ? ` (${cmd.mode})` : ''}`;
+      const lines = Array.isArray(cmd.lines) ? cmd.lines : [];
+      let text = '';
+      if (cmd.mode === 'vtysh') {
+        text = ['vtysh', ...lines].join('\n');
+      } else {
+        text = lines.join('\n');
+      }
+      commandGroups.push({ title, body: text });
+    });
+    commandGroups.forEach((group, idx) => {
+      const wrapper = document.createElement('details');
+      wrapper.className = 'walkthrough-command-block walkthrough-command-accordion';
+      wrapper.open = idx === 0;
+      const summary = document.createElement('summary');
+      summary.className = 'walkthrough-command-title';
+      summary.textContent = group.title;
+      const body = document.createElement('pre');
+      body.textContent = group.body;
+      wrapper.appendChild(summary);
+      wrapper.appendChild(body);
+      wrapper.addEventListener('toggle', () => {
+        if (!wrapper.open) return;
+        detailCommands.querySelectorAll('.walkthrough-command-accordion').forEach(other => {
+          if (other !== wrapper) other.open = false;
+        });
+      });
+      detailCommands.appendChild(wrapper);
+    });
+
+    detailValidation.textContent = `Validation: ${step.validate}`;
   }
 
   function spreadX(count, width, margin) {
@@ -296,13 +445,17 @@
     state.activeNode = name;
     $('walkthroughConsolePanel').hidden = false;
     $('walkthroughConsoleNode').textContent = `Selected node: ${name}`;
+    ensureTerminalVisible();
     await startTerminalSession();
+    // Re-run after terminal init so final height changes are accounted for.
+    setTimeout(ensureTerminalVisible, 50);
   }
 
   function appendTerminal(text) {
     if (!text) return;
     if (state.xterm) {
       state.xterm.write(text);
+      state.xterm.scrollToBottom();
       return;
     }
     const screen = $('walkthroughTerminalScreen');
@@ -343,6 +496,7 @@
     if (state.fitAddon) state.fitAddon.fit();
     host.addEventListener('click', () => {
       if (state.xterm) state.xterm.focus();
+      ensureTerminalVisible();
     });
     state.xterm.onData(data => {
       if (!state.terminalSocket || state.terminalSocket.readyState !== WebSocket.OPEN) return;

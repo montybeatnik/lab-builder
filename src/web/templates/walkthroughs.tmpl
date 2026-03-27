@@ -78,14 +78,19 @@
     </div>
     <p class="muted">Click a node to open the command console for that node.</p>
   </div>
-  <div class="panel">
+  <div class="panel walkthrough-guide-panel">
     <h2>Step-by-Step Guide</h2>
     <ol id="walkthroughSteps" class="walkthrough-steps"></ol>
     <div class="validate-actions">
       <button id="walkthroughPrevStepBtn" class="ghost" type="button">Back</button>
       <button id="walkthroughNextStepBtn" type="button">Next</button>
     </div>
-    <pre id="walkthroughStepDetail" class="result-block"></pre>
+    <div id="walkthroughStepDetail" class="walkthrough-step-detail">
+      <div id="walkthroughStepHeader" class="walkthrough-step-header"></div>
+      <div id="walkthroughStepFacts" class="walkthrough-step-facts muted"></div>
+      <div id="walkthroughStepCommands" class="walkthrough-step-commands"></div>
+      <div id="walkthroughStepValidation" class="walkthrough-step-validation"></div>
+    </div>
   </div>
 </section>
 
