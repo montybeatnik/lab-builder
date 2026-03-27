@@ -61,7 +61,27 @@ var walkthroughProfiles = []walkthroughProfile{
 			Name:        "EVPN Multihoming",
 			Description: "Hands-on with edge multi-homing and validation for resilient L2 service delivery.",
 			DurationMin: 35,
-			Status:      "planned",
+			Status:      "ready",
+		},
+		Request: TopologyRequest{
+			Topology:    "leaf-spine",
+			NodeType:    "frr",
+			SpineCount:  1,
+			LeafCount:   3,
+			EdgeNodes:   2,
+			MultiHoming: true,
+			InfraCIDR:   "10.0.1.0/24",
+			EdgeCIDR:    "172.16.1.0/24",
+			Protocols: labplanner.ProtocolSet{
+				Global: []string{"bgp"},
+				Roles: map[string][]string{
+					"spine": {"bgp"},
+					"leaf":  {"bgp"},
+				},
+			},
+			LabName:    "walkthrough-evpn-multihoming",
+			Force:      true,
+			Monitoring: MonitoringConfig{SNMP: false, GNMI: false},
 		},
 	},
 	{

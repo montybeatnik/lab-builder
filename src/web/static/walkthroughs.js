@@ -51,108 +51,226 @@
   }
 
   function stepsForWalkthrough(id) {
-    if (id !== 'evpn-vxlan-stretched-l2-foundation') return [];
-    return [
-      {
-        title: 'Verify Underlay BGP',
-        goal: 'Confirm ipv4 unicast BGP adjacencies are established between spine and leaves.',
-        commands: [
-          {
-            node: 'spine1',
-            mode: 'vtysh',
-            lines: [
-              'show ip bgp summary'
-            ]
-          },
-          {
-            node: 'leaf1 / leaf2',
-            mode: 'vtysh',
-            lines: [
-              'show ip bgp summary'
-            ]
-          }
-        ],
-        validate: 'All expected neighbors should be Established.'
-      },
-      {
-        title: 'Create Bridge/VXLAN Interface',
-        goal: 'Configure a local L2 service construct on each leaf.',
-        commands: [
-          'ip link add br100 type bridge',
-          'ip link add vxlan100 type vxlan id 100 local <leaf-loopback> dstport 4789 nolearning',
-          'ip link set vxlan100 master br100',
-          'ip link set eth2 master br100',
-          'ip link set br100 up && ip link set vxlan100 up && ip link set eth2 up'
-        ],
-        validate: "Run `ip -d link show vxlan100` on each leaf and confirm the interface is present."
-      },
-      {
-        title: 'Enable EVPN AFI/SAFI',
-        goal: 'Configure l2vpn evpn address-family and activate the underlay neighbors.',
-        commands: [
-          {
-            node: 'spine1',
-            mode: 'vtysh',
-            lines: [
-              'conf t',
-              'router bgp <spine-asn>',
-              'address-family l2vpn evpn',
-              'neighbor <leaf1-loopback> activate',
-              'neighbor <leaf2-loopback> activate',
-              'advertise-all-vni',
-              'end',
-              'write memory'
-            ]
-          },
-          {
-            node: 'leaf1',
-            mode: 'vtysh',
-            lines: [
-              'conf t',
-              'router bgp <leaf1-asn>',
-              'address-family l2vpn evpn',
-              'neighbor <spine-loopback> activate',
-              'advertise-all-vni',
-              'end',
-              'write memory'
-            ]
-          },
-          {
-            node: 'leaf2',
-            mode: 'vtysh',
-            lines: [
-              'conf t',
-              'router bgp <leaf2-asn>',
-              'address-family l2vpn evpn',
-              'neighbor <spine-loopback> activate',
-              'advertise-all-vni',
-              'end',
-              'write memory'
-            ]
-          },
-          {
-            node: 'verify',
-            mode: 'vtysh',
-            lines: [
-              'show bgp l2vpn evpn summary'
-            ]
-          }
-        ],
-        validate: 'EVPN sessions should be Established once full config is applied.'
-      },
-      {
-        title: 'Map Interfaces Into Bridge',
-        goal: 'Verify edge-facing and vxlan interfaces are in the same bridge domain.',
-        commands: ['bridge link', 'bridge vlan show', 'ip -d link show vxlan100'],
-        validate: 'Confirm `eth2` and `vxlan100` are in the same bridge domain.'
-      },
-      {
-        title: 'Validate End-To-End Connectivity',
-        goal: 'Confirm stretched L2 service by pinging edge-to-edge.',
-        commands: ['ping -c 3 <edge-peer-ip>'],
-        validate: 'Ping should succeed from edge1 to edge2.'
-      }
-    ];
+    if (id === 'evpn-vxlan-stretched-l2-foundation') {
+      return [
+        {
+          title: 'Verify Underlay BGP',
+          goal: 'Confirm ipv4 unicast BGP adjacencies are established between spine and leaves.',
+          commands: [
+            {
+              node: 'spine1',
+              mode: 'vtysh',
+              lines: [
+                'show ip bgp summary'
+              ]
+            },
+            {
+              node: 'leaf1 / leaf2',
+              mode: 'vtysh',
+              lines: [
+                'show ip bgp summary'
+              ]
+            }
+          ],
+          validate: 'All expected neighbors should be Established.'
+        },
+        {
+          title: 'Create Bridge/VXLAN Interface',
+          goal: 'Configure a local L2 service construct on each leaf.',
+          commands: [
+            'ip link add br100 type bridge',
+            'ip link add vxlan100 type vxlan id 100 local <leaf-loopback> dstport 4789 nolearning',
+            'ip link set vxlan100 master br100',
+            'ip link set eth2 master br100',
+            'ip link set br100 up && ip link set vxlan100 up && ip link set eth2 up'
+          ],
+          validate: "Run `ip -d link show vxlan100` on each leaf and confirm the interface is present."
+        },
+        {
+          title: 'Enable EVPN AFI/SAFI',
+          goal: 'Configure l2vpn evpn address-family and activate the underlay neighbors.',
+          commands: [
+            {
+              node: 'spine1',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp <spine-asn>',
+                'address-family l2vpn evpn',
+                'neighbor <leaf1-loopback> activate',
+                'neighbor <leaf2-loopback> activate',
+                'advertise-all-vni',
+                'end',
+                'write memory'
+              ]
+            },
+            {
+              node: 'leaf1',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp <leaf1-asn>',
+                'address-family l2vpn evpn',
+                'neighbor <spine-loopback> activate',
+                'advertise-all-vni',
+                'end',
+                'write memory'
+              ]
+            },
+            {
+              node: 'leaf2',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp <leaf2-asn>',
+                'address-family l2vpn evpn',
+                'neighbor <spine-loopback> activate',
+                'advertise-all-vni',
+                'end',
+                'write memory'
+              ]
+            },
+            {
+              node: 'verify',
+              mode: 'vtysh',
+              lines: [
+                'show bgp l2vpn evpn summary'
+              ]
+            }
+          ],
+          validate: 'EVPN sessions should be Established once full config is applied.'
+        },
+        {
+          title: 'Map Interfaces Into Bridge',
+          goal: 'Verify edge-facing and vxlan interfaces are in the same bridge domain.',
+          commands: ['bridge link', 'bridge vlan show', 'ip -d link show vxlan100'],
+          validate: 'Confirm `eth2` and `vxlan100` are in the same bridge domain.'
+        },
+        {
+          title: 'Validate End-To-End Connectivity',
+          goal: 'Confirm stretched L2 service by pinging edge-to-edge.',
+          commands: ['ping -c 3 <edge-peer-ip>'],
+          validate: 'Ping should succeed from edge1 to edge2.'
+        }
+      ];
+    }
+    if (id === 'evpn-vxlan-multihoming') {
+      return [
+        {
+          title: 'Verify Topology And Underlay',
+          goal: 'Confirm 1 spine / 3 leaves are up with ipv4 unicast BGP Established.',
+          commands: [
+            {
+              node: 'spine1',
+              mode: 'vtysh',
+              lines: [
+                'show ip bgp summary'
+              ]
+            },
+            {
+              node: 'leaf1 / leaf2 / leaf3',
+              mode: 'vtysh',
+              lines: [
+                'show ip bgp summary'
+              ]
+            }
+          ],
+          validate: 'Spine should have 3 established neighbors; each leaf should have spine1 established.'
+        },
+        {
+          title: 'Confirm Edge1 Dual-Homing',
+          goal: 'Validate that edge1 has two uplinks (to leaf1 and leaf2) while edge2 remains single-homed.',
+          commands: [
+            {
+              node: 'edge1',
+              mode: 'shell',
+              lines: [
+                'ip -br link',
+                'ip route'
+              ]
+            },
+            {
+              node: 'edge2',
+              mode: 'shell',
+              lines: [
+                'ip -br link',
+                'ip route'
+              ]
+            }
+          ],
+          validate: 'edge1 should show two connected uplink interfaces; edge2 should show one uplink.'
+        },
+        {
+          title: 'Build L2 Service On Leaves',
+          goal: 'Create br100/vxlan100 on all leaves and attach host-facing ports.',
+          commands: [
+            'ip link add br100 type bridge',
+            'ip link add vxlan100 type vxlan id 100 local <leaf-loopback> dstport 4789 nolearning',
+            'ip link set vxlan100 master br100',
+            'ip link set eth2 master br100',
+            'ip link set br100 up && ip link set vxlan100 up && ip link set eth2 up'
+          ],
+          validate: 'Run on leaf1, leaf2, leaf3. Verify `ip -d link show vxlan100` and `bridge link`.'
+        },
+        {
+          title: 'Enable EVPN On Spine/Leaves',
+          goal: 'Activate l2vpn evpn neighbors for all 3 leaves.',
+          commands: [
+            {
+              node: 'spine1',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp <spine-asn>',
+                'address-family l2vpn evpn',
+                'neighbor <leaf1-loopback> activate',
+                'neighbor <leaf2-loopback> activate',
+                'neighbor <leaf3-loopback> activate',
+                'advertise-all-vni',
+                'end',
+                'write memory'
+              ]
+            },
+            {
+              node: 'leaf1 / leaf2 / leaf3',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp <leaf-asn>',
+                'address-family l2vpn evpn',
+                'neighbor <spine-loopback> activate',
+                'advertise-all-vni',
+                'end',
+                'write memory'
+              ]
+            }
+          ],
+          validate: 'Use `show bgp l2vpn evpn summary` and ensure EVPN sessions are Established.'
+        },
+        {
+          title: 'Validate Multi-Homed Service',
+          goal: 'Prove edge-to-edge reachability and inspect EVPN route state.',
+          commands: [
+            {
+              node: 'edge1',
+              mode: 'shell',
+              lines: [
+                'ping -c 3 <edge2-ip>'
+              ]
+            },
+            {
+              node: 'leaf1 / leaf2',
+              mode: 'vtysh',
+              lines: [
+                'show bgp l2vpn evpn route'
+              ]
+            }
+          ],
+          validate: 'Ping should succeed; EVPN route output should show learned MAC/IP state across leaves.'
+        }
+      ];
+    }
+    return [];
   }
 
   async function loadCatalog() {
