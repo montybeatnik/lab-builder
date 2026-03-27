@@ -549,3 +549,161 @@ topology:
 		t.Fatalf("expected startup-derived target ip in ping args, got %q", gotJoined)
 	}
 }
+
+func TestWalkthroughCatalog_MethodNotAllowed(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/walkthroughs/catalog", nil)
+	rec := httptest.NewRecorder()
+	h.WalkthroughCatalog(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected %d got %d", http.StatusMethodNotAllowed, rec.Code)
+	}
+}
+
+func TestWalkthroughCatalog_ReturnsItems(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/walkthroughs/catalog", nil)
+	rec := httptest.NewRecorder()
+	h.WalkthroughCatalog(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d", http.StatusOK, rec.Code)
+	}
+	var resp WalkthroughCatalogResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.OK || len(resp.Items) == 0 {
+		t.Fatalf("expected non-empty catalog: %#v", resp)
+	}
+}
+
+func TestWalkthroughPreflight_MultihomingReady(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	body := `{"walkthroughId":"evpn-vxlan-multihoming","sudo":false}`
+	req := httptest.NewRequest(http.MethodPost, "/walkthroughs/preflight", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.WalkthroughPreflight(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	var resp WalkthroughPreflightResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected preflight ok=true, got %#v", resp)
+	}
+	if resp.WalkthroughID != "evpn-vxlan-multihoming" {
+		t.Fatalf("unexpected walkthrough id %q", resp.WalkthroughID)
+	}
+	if resp.LabName != "walkthrough-evpn-multihoming" {
+		t.Fatalf("unexpected lab name %q", resp.LabName)
+	}
+}
+
+func TestWalkthroughLaunch_RequiresConfirmWhenOtherLabRunning(t *testing.T) {
+	base := t.TempDir()
+	otherDir := filepath.Join(base, "other-lab")
+	if err := os.MkdirAll(otherDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(otherDir, "lab.clab.yml"), []byte("name: other-lab\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := labstore.OpenLabDB(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := labstore.UpsertLab(db, "other-lab", otherDir); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	origInspect := runInspectFn
+	defer func() { runInspectFn = origInspect }()
+	runInspectFn = func(ctx context.Context, labPath string, useSudo bool) ([]byte, error) {
+		if strings.Contains(labPath, "other-lab") {
+			return []byte(`{"other":[{"name":"clab-other-lab-leaf1","state":"running","status":"Up 3 minutes"}]}`), nil
+		}
+		return nil, os.ErrNotExist
+	}
+
+	h := NewHandlers(Config{BaseDir: base}, nil)
+	body := `{"walkthroughId":"evpn-vxlan-stretched-l2-foundation","sudo":false,"forceReplace":false}`
+	req := httptest.NewRequest(http.MethodPost, "/walkthroughs/launch", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.WalkthroughLaunch(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	var resp WalkthroughLaunchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.RequiresConfirm || len(resp.DestroyedLabs) != 1 || resp.DestroyedLabs[0] != "other-lab" {
+		t.Fatalf("expected confirm flow with other-lab, got %#v", resp)
+	}
+}
+
+func TestWalkthroughTerminal_MethodNotAllowed(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/walkthroughs/terminal", nil)
+	rec := httptest.NewRecorder()
+	h.WalkthroughTerminal(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected %d got %d", http.StatusMethodNotAllowed, rec.Code)
+	}
+}
+
+func TestWalkthroughTerminal_BadJSON(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/walkthroughs/terminal", strings.NewReader("{bad"))
+	rec := httptest.NewRecorder()
+	h.WalkthroughTerminal(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestWalkthroughTerminal_RunsCommandOnSelectedNode(t *testing.T) {
+	base := t.TempDir()
+	labDir := filepath.Join(base, "walkthrough-evpn-vxlan-l2")
+	if err := os.MkdirAll(labDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(labDir, "lab.clab.yml"), []byte("name: walkthrough-evpn-vxlan-l2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origInspect := runInspectFn
+	origContainer := runContainerCommandFn
+	defer func() {
+		runInspectFn = origInspect
+		runContainerCommandFn = origContainer
+	}()
+	runInspectFn = func(ctx context.Context, labPath string, useSudo bool) ([]byte, error) {
+		return []byte(`{"demo":[{"name":"clab-walkthrough-evpn-vxlan-l2-leaf1","container_id":"cid-leaf1","state":"running"}]}`), nil
+	}
+	var gotTarget string
+	var gotArgs []string
+	runContainerCommandFn = func(ctx context.Context, target string, useSudo bool, args ...string) ([]byte, error) {
+		gotTarget = target
+		gotArgs = append([]string{}, args...)
+		return []byte("ok"), nil
+	}
+
+	h := NewHandlers(Config{BaseDir: base}, nil)
+	body := `{"labName":"walkthrough-evpn-vxlan-l2","nodeName":"leaf1","command":"vtysh -c 'show ip bgp summary'","sudo":false}`
+	req := httptest.NewRequest(http.MethodPost, "/walkthroughs/terminal", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.WalkthroughTerminal(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if gotTarget != "cid-leaf1" {
+		t.Fatalf("expected target cid-leaf1, got %q", gotTarget)
+	}
+	if strings.Join(gotArgs, " ") != "sh -lc vtysh -c 'show ip bgp summary'" {
+		t.Fatalf("unexpected command args: %#v", gotArgs)
+	}
+}

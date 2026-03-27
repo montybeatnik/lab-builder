@@ -306,3 +306,103 @@ type TrafficResponse struct {
 	Command  string `json:"command,omitempty"`
 	Output   string `json:"output,omitempty"`
 }
+
+type WalkthroughCatalogItem struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	DurationMin int    `json:"durationMin"`
+	Status      string `json:"status"`
+}
+
+type WalkthroughCatalogResponse struct {
+	OK    bool                     `json:"ok"`
+	Error string                   `json:"error,omitempty"`
+	Items []WalkthroughCatalogItem `json:"items,omitempty"`
+}
+
+type WalkthroughPreflightRequest struct {
+	WalkthroughID string `json:"walkthroughId"`
+	UseSudo       bool   `json:"sudo"`
+}
+
+type WalkthroughPreflightResponse struct {
+	OK            bool     `json:"ok"`
+	Error         string   `json:"error,omitempty"`
+	WalkthroughID string   `json:"walkthroughId,omitempty"`
+	LabName       string   `json:"labName,omitempty"`
+	DeployedLabs  []string `json:"deployedLabs,omitempty"`
+}
+
+type WalkthroughLaunchRequest struct {
+	WalkthroughID string `json:"walkthroughId"`
+	UseSudo       bool   `json:"sudo"`
+	ForceReplace  bool   `json:"forceReplace"`
+}
+
+type WalkthroughLaunchResponse struct {
+	OK              bool     `json:"ok"`
+	Error           string   `json:"error,omitempty"`
+	RequiresConfirm bool     `json:"requiresConfirm,omitempty"`
+	WalkthroughID   string   `json:"walkthroughId,omitempty"`
+	LabName         string   `json:"labName,omitempty"`
+	DestroyedLabs   []string `json:"destroyedLabs,omitempty"`
+	Path            string   `json:"path,omitempty"`
+	Output          string   `json:"output,omitempty"`
+}
+
+type WalkthroughTerminalRequest struct {
+	LabName    string `json:"labName"`
+	NodeName   string `json:"nodeName"`
+	Command    string `json:"command"`
+	UseSudo    bool   `json:"sudo"`
+	TimeoutSec int    `json:"timeoutSec"`
+}
+
+type WalkthroughTerminalResponse struct {
+	OK       bool   `json:"ok"`
+	Error    string `json:"error,omitempty"`
+	LabName  string `json:"labName,omitempty"`
+	NodeName string `json:"nodeName,omitempty"`
+	Command  string `json:"command,omitempty"`
+	Output   string `json:"output,omitempty"`
+}
+
+type WalkthroughTerminalStartRequest struct {
+	LabName    string `json:"labName"`
+	NodeName   string `json:"nodeName"`
+	UseSudo    bool   `json:"sudo"`
+	TimeoutSec int    `json:"timeoutSec"`
+}
+
+type WalkthroughTerminalStartResponse struct {
+	OK        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+	SessionID string `json:"sessionId,omitempty"`
+	LabName   string `json:"labName,omitempty"`
+	NodeName  string `json:"nodeName,omitempty"`
+	Output    string `json:"output,omitempty"`
+}
+
+type WalkthroughTerminalWriteRequest struct {
+	SessionID string `json:"sessionId"`
+	Input     string `json:"input"`
+}
+
+type WalkthroughTerminalPollRequest struct {
+	SessionID string `json:"sessionId"`
+	Cursor    int    `json:"cursor"`
+}
+
+type WalkthroughTerminalPollResponse struct {
+	OK         bool   `json:"ok"`
+	Error      string `json:"error,omitempty"`
+	SessionID  string `json:"sessionId,omitempty"`
+	Output     string `json:"output,omitempty"`
+	NextCursor int    `json:"nextCursor,omitempty"`
+	Closed     bool   `json:"closed,omitempty"`
+}
+
+type WalkthroughTerminalCloseRequest struct {
+	SessionID string `json:"sessionId"`
+}

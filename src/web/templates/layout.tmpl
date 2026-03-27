@@ -3,17 +3,23 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>{{ if eq .Page "health" }}{{ template "lab_title" . }}{{ else if eq .Page "viewer" }}{{ template "viewer_title" . }}{{ else if eq .Page "live" }}{{ template "live_title" . }}{{ else }}{{ template "index_title" . }}{{ end }}</title>
+  <title>{{ if eq .Page "health" }}{{ template "lab_title" . }}{{ else if eq .Page "viewer" }}{{ template "viewer_title" . }}{{ else if eq .Page "live" }}{{ template "live_title" . }}{{ else if eq .Page "walkthroughs" }}{{ template "walkthroughs_title" . }}{{ else }}{{ template "index_title" . }}{{ end }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="/static/styles.css">
+  {{ if eq .Page "walkthroughs" }}
+  <link rel="stylesheet" href="/static/vendor/xterm.css">
+  <script src="/static/vendor/xterm.js" defer></script>
+  <script src="/static/vendor/addon-fit.js" defer></script>
+  {{ end }}
   <script src="/static/app.js" defer></script>
   <script src="/static/lab.js" defer></script>
   <script src="/static/viewer.js" defer></script>
   <script src="/static/live.js" defer></script>
+  <script src="/static/walkthroughs.js" defer></script>
 </head>
 <body>
   <main class="container page-{{ .Page }}">
-    {{ if eq .Page "health" }}{{ template "lab_content" . }}{{ else if eq .Page "viewer" }}{{ template "viewer_content" . }}{{ else if eq .Page "live" }}{{ template "live_content" . }}{{ else }}{{ template "index_content" . }}{{ end }}
+    {{ if eq .Page "health" }}{{ template "lab_content" . }}{{ else if eq .Page "viewer" }}{{ template "viewer_content" . }}{{ else if eq .Page "live" }}{{ template "live_content" . }}{{ else if eq .Page "walkthroughs" }}{{ template "walkthroughs_content" . }}{{ else }}{{ template "index_content" . }}{{ end }}
   </main>
 </body>
 </html>

@@ -756,6 +756,188 @@ a.monitor-link {
   transform: scale(1.1);
 }
 
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-md);
+  background: rgba(8, 16, 35, 0.58);
+}
+
+.walkthrough-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.walkthrough-table th,
+.walkthrough-table td {
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid rgba(71, 85, 105, 0.5);
+  vertical-align: top;
+  text-align: left;
+}
+
+.walkthrough-table th {
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.68);
+}
+
+.walkthrough-table tbody tr:hover {
+  background: rgba(34, 211, 238, 0.08);
+}
+
+#walkthroughGraph {
+  width: 100%;
+  height: 520px;
+  display: block;
+}
+
+#walkthroughRunner.grid {
+  grid-template-columns: minmax(680px, 1.45fr) minmax(520px, 1fr);
+  align-items: start;
+}
+
+.walkthrough-steps {
+  margin: 0.4rem 0 0.9rem;
+  padding-left: 1.45rem;
+  display: grid;
+  gap: 0.35rem;
+  max-height: 145px;
+  overflow: auto;
+  list-style-position: inside;
+}
+
+.walkthrough-guide-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: none;
+}
+
+.walkthrough-step-detail {
+  margin-top: 0.8rem;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-md);
+  background: rgba(8, 16, 35, 0.58);
+  padding: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  flex: 1;
+  min-height: 520px;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+}
+
+.walkthrough-step-header {
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.walkthrough-step-facts {
+  font-size: 0.85rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow: visible;
+}
+
+.walkthrough-step-commands {
+  min-height: 0;
+  overflow: visible;
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+}
+
+.walkthrough-command-block {
+  border: 1px solid rgba(71, 85, 105, 0.62);
+  border-radius: var(--radius-sm);
+  background: rgba(2, 6, 23, 0.78);
+  overflow: hidden;
+  min-height: fit-content;
+}
+
+.walkthrough-command-title {
+  font-size: 0.8rem;
+  color: #93c5fd;
+  background: rgba(15, 23, 42, 0.95);
+  border-bottom: 1px solid rgba(71, 85, 105, 0.55);
+  padding: 0.42rem 0.6rem;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+
+.walkthrough-command-accordion > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.walkthrough-command-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.walkthrough-command-accordion > summary::after {
+  content: "▸";
+  float: right;
+  color: #94a3b8;
+}
+
+.walkthrough-command-accordion[open] > summary::after {
+  content: "▾";
+}
+
+.walkthrough-command-accordion:not([open]) pre {
+  display: none;
+}
+
+.walkthrough-command-block pre {
+  margin: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 0.65rem 0.7rem;
+}
+
+.walkthrough-step-validation {
+  border-top: 1px dashed rgba(71, 85, 105, 0.55);
+  padding-top: 0.55rem;
+  font-size: 0.85rem;
+  color: #d1fae5;
+}
+
+.walkthrough-step {
+  cursor: pointer;
+  color: #cbd5e1;
+}
+
+.walkthrough-step.active {
+  color: #67e8f9;
+  font-weight: 700;
+}
+
+.walkthrough-terminal {
+  margin-top: 0.8rem;
+  min-height: 260px;
+  max-height: 360px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid #334155;
+  background: #050b19;
+  color: #d1fae5;
+  font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  padding: 0.75rem 0.8rem;
+  white-space: pre-wrap;
+}
+
 .page-live .grid {
   grid-template-columns: minmax(900px, 2.4fr) minmax(300px, 1fr);
 }
@@ -1016,6 +1198,18 @@ button:focus {
   .hero { flex-direction: column; }
   .status-card { width: 100%; }
   .page-live .grid { grid-template-columns: 1fr; }
+  #walkthroughRunner.grid { grid-template-columns: 1fr; }
+  .walkthrough-guide-panel {
+    min-height: 0;
+    max-height: none;
+  }
+  .walkthrough-steps {
+    max-height: none;
+  }
+  .walkthrough-step-detail {
+    min-height: 0;
+    max-height: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
