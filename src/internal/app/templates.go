@@ -13,5 +13,6 @@ func NewTemplates() (*template.Template, error) {
 		"web/templates/lab.tmpl",
 		"web/templates/viewer.tmpl",
 		"web/templates/live.tmpl",
+		"web/templates/walkthroughs.tmpl",
 	)
 }

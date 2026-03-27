@@ -1,0 +1,113 @@
+{{ define "walkthroughs_title" }}Lab Walkthroughs{{ end }}
+
+{{ define "walkthroughs_content" }}
+<header class="hero">
+  <div>
+    <p class="eyebrow">LAB BUILDER</p>
+    <h1>Lab Walkthroughs</h1>
+    <p class="subhead">Choose a guided lab with predefined topology and base config, then step through validations as you build skills.</p>
+    <nav class="page-nav">
+      <a href="/">Build</a>
+      <a href="/walkthroughs" class="active">Walkthroughs</a>
+      <a href="/viewer">Lab Viewer</a>
+      <a href="/live">Live Topology</a>
+      <a href="/lab">Health</a>
+    </nav>
+  </div>
+  <div class="status-card">
+    <div class="status-line">
+      <span id="walkthroughStatus" class="status status-idle">Select a walkthrough</span>
+    </div>
+    <div class="status-meta">
+      <div>Base dir</div>
+      <code>{{ .BaseDir }}</code>
+    </div>
+  </div>
+</header>
+
+<section class="panel">
+  <h2>Walkthrough Catalog</h2>
+  <p class="muted">Each lab boots with a small topology and enough base config for a focused learning outcome.</p>
+  <div class="table-wrap">
+    <table class="walkthrough-table">
+      <thead>
+        <tr>
+          <th>Lab Name</th>
+          <th>What You Will Learn</th>
+          <th>Duration</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="walkthroughRows">
+        <tr><td colspan="5" class="muted">Loading walkthroughs...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="validate-header">
+    <h2>Launch</h2>
+    <button id="walkthroughLaunchBtn" type="button">Deploy Selected Walkthrough</button>
+  </div>
+  <div class="form-grid">
+    <label>
+      Selected walkthrough
+      <input id="walkthroughSelected" type="text" value="" readonly>
+    </label>
+    <label>
+      Use sudo
+      <select id="walkthroughUseSudo">
+        <option value="true" selected>yes</option>
+        <option value="false">no</option>
+      </select>
+    </label>
+  </div>
+  <pre id="walkthroughOutput" class="result-block" hidden></pre>
+</section>
+
+<section id="walkthroughRunner" class="grid" hidden>
+  <div class="panel graph-panel">
+    <div class="graph-header">
+      <h2>Walkthrough Topology</h2>
+      <button id="walkthroughRefreshTopoBtn" class="ghost" type="button">Refresh</button>
+    </div>
+    <div class="graph-wrap future-wrap">
+      <svg id="walkthroughGraph" class="future-mode" viewBox="0 0 1000 520" role="img" aria-label="Walkthrough topology"></svg>
+    </div>
+    <p class="muted">Click a node to open the command console for that node.</p>
+  </div>
+  <div class="panel">
+    <h2>Step-by-Step Guide</h2>
+    <ol id="walkthroughSteps" class="walkthrough-steps"></ol>
+    <div class="validate-actions">
+      <button id="walkthroughPrevStepBtn" class="ghost" type="button">Back</button>
+      <button id="walkthroughNextStepBtn" type="button">Next</button>
+    </div>
+    <pre id="walkthroughStepDetail" class="result-block"></pre>
+  </div>
+</section>
+
+<section id="walkthroughConsolePanel" class="panel" hidden>
+  <div class="validate-header">
+    <h2>Node Console</h2>
+    <span id="walkthroughConsoleNode" class="muted">No node selected</span>
+  </div>
+  <p class="muted">Run commands directly on the selected node. This is an interactive command runner for walkthrough tasks.</p>
+  <div class="form-grid">
+    <label>
+      Command
+      <input id="walkthroughConsoleCmd" type="text" value="vtysh -c 'show ip bgp summary'">
+    </label>
+    <label>
+      Timeout (seconds)
+      <input id="walkthroughConsoleTimeout" type="number" min="1" max="120" value="30">
+    </label>
+  </div>
+  <div class="validate-actions">
+    <button id="walkthroughConsoleRunBtn" type="button">Run Command</button>
+  </div>
+  <pre id="walkthroughConsoleOut" class="result-block"></pre>
+</section>
+{{ end }}

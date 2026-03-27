@@ -6,6 +6,7 @@ Build, validate, and deploy Containerlab topologies from a web UI.
 
 ## What This App Does
 - Designs labs from the **Build** page (leaf/spine, hub/spoke, mesh, custom).
+- Includes guided **Lab Walkthroughs** with predefined topologies and learning goals.
 - Generates full lab artifacts under `.labs/<lab-name>/`.
 - Deploys and destroys labs directly from the UI.
 - Supports FRR and cEOS node types.
@@ -36,6 +37,27 @@ Open that URL in your browser.
 4. Click **Generate Lab**.
 5. Click **Deploy Lab**.
 6. Use **Lab Viewer** and **Health** tabs to inspect and verify.
+
+## Lab Walkthroughs (Guided Labs)
+Use the **Walkthroughs** page to launch opinionated labs designed for learning by doing.
+
+Each walkthrough shows:
+- Lab name
+- What you will learn
+- Estimated duration
+- Readiness status
+
+When you launch a walkthrough:
+1. The app checks if another lab is already deployed.
+2. If one exists, it prompts to tear down the existing lab first.
+3. On confirmation, it destroys the old lab and deploys the selected walkthrough lab.
+
+### First guided lab included
+- **EVPN/VXLAN Stretched L2 (Foundation)**
+- Topology: **1 spine, 2 leaf, 2 edge**
+- Node type: **FRR**
+- Base state: infra IPs + vanilla BGP IPv4 unicast underlay
+- Goal: walk through remaining overlay config and validation until edge-to-edge ping succeeds
 
 ## Useful Commands
 ```bash

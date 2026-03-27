@@ -31,3 +31,7 @@ func (h *Handlers) Viewer(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) Live(w http.ResponseWriter, r *http.Request) {
 	h.renderPage(w, "live")
 }
+
+func (h *Handlers) Walkthroughs(w http.ResponseWriter, r *http.Request) {
+	h.renderPage(w, "walkthroughs")
+}
