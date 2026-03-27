@@ -367,3 +367,42 @@ type WalkthroughTerminalResponse struct {
 	Command  string `json:"command,omitempty"`
 	Output   string `json:"output,omitempty"`
 }
+
+type WalkthroughTerminalStartRequest struct {
+	LabName    string `json:"labName"`
+	NodeName   string `json:"nodeName"`
+	UseSudo    bool   `json:"sudo"`
+	TimeoutSec int    `json:"timeoutSec"`
+}
+
+type WalkthroughTerminalStartResponse struct {
+	OK        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+	SessionID string `json:"sessionId,omitempty"`
+	LabName   string `json:"labName,omitempty"`
+	NodeName  string `json:"nodeName,omitempty"`
+	Output    string `json:"output,omitempty"`
+}
+
+type WalkthroughTerminalWriteRequest struct {
+	SessionID string `json:"sessionId"`
+	Input     string `json:"input"`
+}
+
+type WalkthroughTerminalPollRequest struct {
+	SessionID string `json:"sessionId"`
+	Cursor    int    `json:"cursor"`
+}
+
+type WalkthroughTerminalPollResponse struct {
+	OK         bool   `json:"ok"`
+	Error      string `json:"error,omitempty"`
+	SessionID  string `json:"sessionId,omitempty"`
+	Output     string `json:"output,omitempty"`
+	NextCursor int    `json:"nextCursor,omitempty"`
+	Closed     bool   `json:"closed,omitempty"`
+}
+
+type WalkthroughTerminalCloseRequest struct {
+	SessionID string `json:"sessionId"`
+}

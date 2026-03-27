@@ -11,7 +11,10 @@
     activeNode: '',
     plan: null,
     steps: [],
-    stepIndex: 0
+    stepIndex: 0,
+    terminalSocket: null,
+    xterm: null,
+    fitAddon: null
   };
 
   function setStatus(text, cls) {
@@ -34,44 +37,31 @@
       {
         title: 'Verify Underlay BGP',
         goal: 'Confirm ipv4 unicast BGP adjacencies are established between spine and leaves.',
-        commands: [
-          "vtysh -c 'show ip bgp summary'"
-        ],
+        commands: ["vtysh -c 'show ip bgp summary'"],
         validate: 'All expected neighbors should be Established.'
       },
       {
         title: 'Create Bridge/VXLAN Interface',
         goal: 'Configure a local L2 service construct on each leaf.',
-        commands: [
-          "vtysh -c 'conf t' -c 'interface vxlan100' -c 'vxlan id 100' -c 'vxlan local-tunnelip <leaf-loopback>' -c 'exit' -c 'end'"
-        ],
+        commands: ["vtysh -c 'conf t' -c 'interface vxlan100' -c 'vxlan id 100' -c 'vxlan local-tunnelip <leaf-loopback>' -c 'end'"],
         validate: "Run `ip -d link show vxlan100` on each leaf and confirm the interface is present."
       },
       {
         title: 'Enable EVPN AFI/SAFI',
         goal: 'Turn up l2vpn evpn neighbor activation under BGP.',
-        commands: [
-          "vtysh -c 'conf t' -c 'router bgp <asn>' -c 'address-family l2vpn evpn' -c 'neighbor <peer> activate' -c 'advertise-all-vni' -c 'end'"
-        ],
-        validate: "Use `vtysh -c 'show bgp l2vpn evpn summary'` and check Established state."
+        commands: ["vtysh -c 'show bgp l2vpn evpn summary'"],
+        validate: 'EVPN sessions should be Established once full config is applied.'
       },
       {
-        title: 'Map Edge Interfaces To Bridge',
-        goal: 'Attach local edge-facing interface and VXLAN interface into the same bridge domain.',
-        commands: [
-          'ip link add br100 type bridge',
-          'ip link set br100 up',
-          'ip link set eth2 master br100',
-          'ip link set vxlan100 master br100'
-        ],
-        validate: "Use `bridge link` and confirm both `eth2` and `vxlan100` are in `br100`."
+        title: 'Map Interfaces Into Bridge',
+        goal: 'Attach edge-facing interface and vxlan interface to the bridge domain.',
+        commands: ['bridge link', 'ip -d link show'],
+        validate: 'Confirm `eth2` and `vxlan100` are in the same bridge domain.'
       },
       {
         title: 'Validate End-To-End Connectivity',
         goal: 'Confirm stretched L2 service by pinging edge-to-edge.',
-        commands: [
-          'ping -c 3 <edge-peer-ip>'
-        ],
+        commands: ['ping -c 3 <edge-peer-ip>'],
         validate: 'Ping should succeed from edge1 to edge2.'
       }
     ];
@@ -162,9 +152,7 @@
       const existingList = data.deployedLabs || data.destroyedLabs || [];
       const existing = existingList.join(', ');
       const ok = window.confirm(`A lab is already deployed: ${existing}. Unless you have a super computer, we should tear it down before launching this walkthrough. Continue?`);
-      if (ok) {
-        return launch(true);
-      }
+      if (ok) return launch(true);
       setStatus('Launch cancelled', 'status-idle');
       return;
     }
@@ -196,7 +184,7 @@
     const list = $('walkthroughSteps');
     const detail = $('walkthroughStepDetail');
     if (!list || !detail) return;
-    if (!state.steps || state.steps.length === 0) {
+    if (!state.steps.length) {
       list.innerHTML = '<li class="muted">No steps loaded yet.</li>';
       detail.textContent = '';
       return;
@@ -240,7 +228,6 @@
     const edge = names.filter(n => /^edge\d+$/i.test(n));
     const rest = names.filter(n => !spine.includes(n) && !leaf.includes(n) && !edge.includes(n));
     const width = 1000;
-    const height = 520;
     const spineXs = spreadX(spine.length, width, 120);
     const leafXs = spreadX(leaf.length, width, 120);
     spine.forEach((n, i) => { layout[n] = { x: spineXs[i], y: 120, role: 'spine' }; });
@@ -293,7 +280,6 @@
       rect.setAttribute('rx', isServer ? 4 : 6);
       rect.setAttribute('class', isServer ? 'server-chassis' : 'switch-chassis');
       group.appendChild(rect);
-
       const label = document.createElementNS(svgNS, 'text');
       label.setAttribute('x', pos.x);
       label.setAttribute('y', pos.y + 34);
@@ -301,47 +287,144 @@
       label.textContent = name;
       group.appendChild(label);
       group.style.cursor = 'pointer';
-      group.addEventListener('click', () => {
-        state.activeNode = name;
-        $('walkthroughConsolePanel').hidden = false;
-        $('walkthroughConsoleNode').textContent = `Selected node: ${name}`;
-        $('walkthroughConsoleOut').textContent = `Node selected: ${name}`;
-      });
+      group.addEventListener('click', () => selectNode(name));
       svg.appendChild(group);
     });
   }
 
-  async function runNodeCommand() {
-    const out = $('walkthroughConsoleOut');
-    if (!state.activeLab || !state.activeNode) {
-      out.textContent = 'Select a node from the topology first.';
+  async function selectNode(name) {
+    state.activeNode = name;
+    $('walkthroughConsolePanel').hidden = false;
+    $('walkthroughConsoleNode').textContent = `Selected node: ${name}`;
+    await startTerminalSession();
+  }
+
+  function appendTerminal(text) {
+    if (!text) return;
+    if (state.xterm) {
+      state.xterm.write(text);
       return;
     }
-    const command = $('walkthroughConsoleCmd').value.trim();
-    if (!command) {
-      out.textContent = 'Enter a command first.';
+    const screen = $('walkthroughTerminalScreen');
+    if (!screen) return;
+    screen.textContent += text;
+    screen.scrollTop = screen.scrollHeight;
+  }
+
+  function initXTerm() {
+    const host = $('walkthroughTerminalScreen');
+    if (!host) return;
+    if (state.xterm) {
+      state.xterm.dispose();
+      state.xterm = null;
+    }
+    if (typeof window.Terminal !== 'function') {
+      host.textContent = 'Terminal UI failed to load (xterm.js missing).';
       return;
     }
-    const timeoutSec = parseInt($('walkthroughConsoleTimeout').value, 10);
-    out.textContent = `Running on ${state.activeNode}: ${command}\n...`;
-    const payload = {
+    state.xterm = new window.Terminal({
+      cursorBlink: true,
+      fontSize: 13,
+      lineHeight: 1.2,
+      convertEol: true,
+      theme: {
+        background: '#050b19',
+        foreground: '#d1fae5',
+        cursor: '#7dd3fc'
+      }
+    });
+    state.fitAddon = null;
+    if (window.FitAddon && typeof window.FitAddon.FitAddon === 'function') {
+      state.fitAddon = new window.FitAddon.FitAddon();
+      state.xterm.loadAddon(state.fitAddon);
+    }
+    host.innerHTML = '';
+    state.xterm.open(host);
+    if (state.fitAddon) state.fitAddon.fit();
+    host.addEventListener('click', () => {
+      if (state.xterm) state.xterm.focus();
+    });
+    state.xterm.onData(data => {
+      if (!state.terminalSocket || state.terminalSocket.readyState !== WebSocket.OPEN) return;
+      state.terminalSocket.send(JSON.stringify({ type: 'input', data }));
+    });
+    state.xterm.onResize(size => {
+      if (!state.terminalSocket || state.terminalSocket.readyState !== WebSocket.OPEN) return;
+      state.terminalSocket.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
+    });
+  }
+
+  async function startTerminalSession() {
+    await closeTerminalSession();
+    if (!state.activeLab || !state.activeNode) return;
+    initXTerm();
+    const qs = new URLSearchParams({
       labName: state.activeLab,
       nodeName: state.activeNode,
-      command,
-      sudo: $('walkthroughUseSudo').value === 'true',
-      timeoutSec: Number.isFinite(timeoutSec) ? timeoutSec : 30
-    };
-    const res = await fetch('/walkthroughs/terminal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      sudo: String($('walkthroughUseSudo').value === 'true'),
+      timeoutSec: '30'
     });
-    const data = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
-    out.textContent = JSON.stringify(data, null, 2);
-    if (data.ok) {
-      setStatus(`Command completed on ${state.activeNode}`, 'status-pass');
-    } else {
-      setStatus(`Command failed on ${state.activeNode}`, 'status-fail');
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsURL = `${scheme}://${window.location.host}/walkthroughs/terminal/ws?${qs.toString()}`;
+    const ws = new WebSocket(wsURL);
+    state.terminalSocket = ws;
+    ws.addEventListener('open', () => {
+      setStatus(`Terminal connected: ${state.activeNode}`, 'status-pass');
+      if (state.fitAddon) {
+        state.fitAddon.fit();
+      }
+      if (state.xterm) {
+        state.xterm.focus();
+        state.xterm.writeln('\x1b[90m[interactive terminal ready]\x1b[0m');
+      }
+      if (state.xterm) {
+        const cols = state.xterm.cols || 80;
+        const rows = state.xterm.rows || 24;
+        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    });
+    ws.addEventListener('message', ev => {
+      let msg = null;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch {
+        appendTerminal(String(ev.data));
+        return;
+      }
+      if (msg.type === 'output') {
+        const out = String(msg.data || '');
+        appendTerminal(out);
+        // Some shells issue DSR (ESC [ 6 n). Reply with a cursor report so the
+        // interactive prompt does not stall and users can type immediately.
+        if (out.includes('\u001b[6n') || out.includes('[6n')) {
+          if (state.terminalSocket && state.terminalSocket.readyState === WebSocket.OPEN) {
+            state.terminalSocket.send(JSON.stringify({ type: 'input', data: '\u001b[1;1R' }));
+          }
+        }
+      } else if (msg.type === 'status') {
+        appendTerminal(`\n[${msg.data || 'connected'}]\n`);
+      } else if (msg.type === 'error') {
+        appendTerminal(`\n[error] ${msg.data || 'terminal error'}\n`);
+      }
+    });
+    ws.addEventListener('close', () => {
+      if (state.terminalSocket === ws) {
+        state.terminalSocket = null;
+      }
+      appendTerminal('\n[session closed]\n');
+    });
+    ws.addEventListener('error', () => {
+      setStatus('Terminal connection failed', 'status-fail');
+    });
+  }
+
+  async function closeTerminalSession() {
+    if (state.terminalSocket) {
+      try {
+        state.terminalSocket.send(JSON.stringify({ type: 'close' }));
+      } catch {}
+      state.terminalSocket.close();
+      state.terminalSocket = null;
     }
   }
 
@@ -361,7 +444,14 @@
       state.stepIndex += 1;
       renderStepper();
     });
-    $('walkthroughConsoleRunBtn').addEventListener('click', runNodeCommand);
+    $('walkthroughConsoleReconnectBtn').addEventListener('click', startTerminalSession);
+    window.addEventListener('resize', () => {
+      if (!state.fitAddon || !state.xterm) return;
+      state.fitAddon.fit();
+      if (state.terminalSocket && state.terminalSocket.readyState === WebSocket.OPEN) {
+        state.terminalSocket.send(JSON.stringify({ type: 'resize', cols: state.xterm.cols, rows: state.xterm.rows }));
+      }
+    });
+    window.addEventListener('beforeunload', closeTerminalSession);
   });
 })();
-

@@ -811,6 +811,22 @@ a.monitor-link {
   font-weight: 700;
 }
 
+.walkthrough-terminal {
+  margin-top: 0.8rem;
+  min-height: 260px;
+  max-height: 360px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid #334155;
+  background: #050b19;
+  color: #d1fae5;
+  font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  padding: 0.75rem 0.8rem;
+  white-space: pre-wrap;
+}
+
 .page-live .grid {
   grid-template-columns: minmax(900px, 2.4fr) minmax(300px, 1fr);
 }

@@ -94,20 +94,10 @@
     <h2>Node Console</h2>
     <span id="walkthroughConsoleNode" class="muted">No node selected</span>
   </div>
-  <p class="muted">Run commands directly on the selected node. This is an interactive command runner for walkthrough tasks.</p>
-  <div class="form-grid">
-    <label>
-      Command
-      <input id="walkthroughConsoleCmd" type="text" value="vtysh -c 'show ip bgp summary'">
-    </label>
-    <label>
-      Timeout (seconds)
-      <input id="walkthroughConsoleTimeout" type="number" min="1" max="120" value="30">
-    </label>
-  </div>
+  <p class="muted">Interactive shell session. Click terminal to focus, then type commands directly.</p>
+  <div id="walkthroughTerminalScreen" class="walkthrough-terminal"></div>
   <div class="validate-actions">
-    <button id="walkthroughConsoleRunBtn" type="button">Run Command</button>
+    <button id="walkthroughConsoleReconnectBtn" class="ghost" type="button">Reconnect</button>
   </div>
-  <pre id="walkthroughConsoleOut" class="result-block"></pre>
 </section>
 {{ end }}

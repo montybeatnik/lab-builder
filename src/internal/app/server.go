@@ -45,6 +45,11 @@ func NewMux(h *Handlers) (*http.ServeMux, error) {
 	mux.HandleFunc("/walkthroughs/preflight", h.WalkthroughPreflight)
 	mux.HandleFunc("/walkthroughs/launch", h.WalkthroughLaunch)
 	mux.HandleFunc("/walkthroughs/terminal", h.WalkthroughTerminal)
+	mux.HandleFunc("/walkthroughs/terminal/start", h.WalkthroughTerminalStart)
+	mux.HandleFunc("/walkthroughs/terminal/write", h.WalkthroughTerminalWrite)
+	mux.HandleFunc("/walkthroughs/terminal/poll", h.WalkthroughTerminalPoll)
+	mux.HandleFunc("/walkthroughs/terminal/close", h.WalkthroughTerminalClose)
+	mux.HandleFunc("/walkthroughs/terminal/ws", h.WalkthroughTerminalWS)
 	return mux, nil
 }
 
