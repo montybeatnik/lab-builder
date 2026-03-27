@@ -278,12 +278,31 @@ type LivePeeringStatus struct {
 }
 
 type LiveTopologyResponse struct {
-	OK       bool               `json:"ok"`
-	Error    string             `json:"error,omitempty"`
-	LabName  string             `json:"labName,omitempty"`
-	Nodes    []NodePlanJSON     `json:"nodes,omitempty"`
-	Links    []LiveLinkStatus   `json:"links,omitempty"`
+	OK       bool                `json:"ok"`
+	Error    string              `json:"error,omitempty"`
+	LabName  string              `json:"labName,omitempty"`
+	Nodes    []NodePlanJSON      `json:"nodes,omitempty"`
+	Links    []LiveLinkStatus    `json:"links,omitempty"`
 	Peerings []LivePeeringStatus `json:"peerings,omitempty"`
-	Summary  LiveSummary        `json:"summary,omitempty"`
-	PolledAt string             `json:"polledAt,omitempty"`
+	Summary  LiveSummary         `json:"summary,omitempty"`
+	PolledAt string              `json:"polledAt,omitempty"`
+}
+
+type TrafficRequest struct {
+	LabName string `json:"labName"`
+	UseSudo bool   `json:"sudo"`
+	Source  string `json:"source"`
+	Target  string `json:"target"`
+	Count   int    `json:"count"`
+}
+
+type TrafficResponse struct {
+	OK       bool   `json:"ok"`
+	Error    string `json:"error,omitempty"`
+	LabName  string `json:"labName,omitempty"`
+	Source   string `json:"source,omitempty"`
+	Target   string `json:"target,omitempty"`
+	TargetIP string `json:"targetIp,omitempty"`
+	Command  string `json:"command,omitempty"`
+	Output   string `json:"output,omitempty"`
 }

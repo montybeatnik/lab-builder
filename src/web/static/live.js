@@ -14,12 +14,23 @@
   let pollTimer = null;
   let panDrag = null;
   let lastLiveData = null;
+  let trafficOverlay = null;
+  let trafficOverlayTimer = null;
+  const liveTraffic = {
+    edges: []
+  };
 
   function setStatus(text, cls) {
     const status = $('liveStatus');
     if (!status) return;
     status.textContent = text;
     status.className = `status ${cls || 'status-idle'}`;
+  }
+
+  function setTrafficStatus(text) {
+    const el = $('liveTrafficStatus');
+    if (!el) return;
+    el.textContent = text;
   }
 
   async function loadLabs() {
@@ -38,6 +49,144 @@
       opt.textContent = `${lab.name} (${lab.path})`;
       select.appendChild(opt);
     });
+  }
+
+  async function loadTrafficEdgesFromPlan(labName) {
+    if (!labName) {
+      syncTrafficSelectors([], true);
+      setTrafficStatus('Select source/target edge nodes.');
+      return;
+    }
+    const res = await fetch(`/labplan?name=${encodeURIComponent(labName)}`);
+    const data = await res.json().catch(() => ({ ok: false }));
+    if (!data.ok) {
+      // Keep existing options if plan lookup fails; live telemetry can still populate these.
+      setTrafficStatus('Unable to load edge list from plan yet. Start Live polling to detect edges.');
+      return;
+    }
+    const edges = deriveEdgeNames(data.nodes || [], data.links || []);
+    syncTrafficSelectors(edges);
+    if (edges.length === 0) {
+      setTrafficStatus('No edge nodes detected for this lab.');
+    } else {
+      setTrafficStatus('Select source/target edge nodes.');
+    }
+  }
+
+  function syncTrafficSelectors(edges, forceClear) {
+    const source = $('liveTrafficSource');
+    const target = $('liveTrafficTarget');
+    if (!source || !target) return;
+    const unique = Array.from(new Set((edges || []).filter(Boolean))).sort();
+    if (unique.length === 0 && !forceClear) return;
+    liveTraffic.edges = unique;
+    const sourceCurrent = source.value;
+    const targetCurrent = target.value;
+    const options = ['<option value="">Select...</option>']
+      .concat(liveTraffic.edges.map(n => `<option value="${n}">${n}</option>`))
+      .join('');
+    source.innerHTML = options;
+    target.innerHTML = options;
+    if (liveTraffic.edges.includes(sourceCurrent)) source.value = sourceCurrent;
+    if (liveTraffic.edges.includes(targetCurrent)) target.value = targetCurrent;
+  }
+
+  function deriveEdgeNames(nodes, links) {
+    const out = new Set();
+    (nodes || []).forEach(n => {
+      if (!n || !n.name) return;
+      const role = (n.role || '').toLowerCase();
+      if (role === 'edge' || isEdgeName(n.name)) out.add(n.name);
+    });
+    (links || []).forEach(l => {
+      if (l && isEdgeName(l.a)) out.add(l.a);
+      if (l && isEdgeName(l.b)) out.add(l.b);
+    });
+    return Array.from(out).sort();
+  }
+
+  function isEdgeName(name) {
+    if (!name) return false;
+    return /^edge\d+$/i.test(String(name));
+  }
+
+  function selectTrafficNode(nodeName) {
+    const source = $('liveTrafficSource');
+    const target = $('liveTrafficTarget');
+    if (!source || !target || !nodeName) return;
+    if (!source.value || source.value === nodeName) {
+      source.value = nodeName;
+      return;
+    }
+    target.value = nodeName;
+  }
+
+  async function runTraffic() {
+    const labName = $('liveLabSelect') ? $('liveLabSelect').value : '';
+    const source = $('liveTrafficSource') ? $('liveTrafficSource').value : '';
+    const target = $('liveTrafficTarget') ? $('liveTrafficTarget').value : '';
+    const count = parseInt($('liveTrafficCount').value, 10);
+    if (!labName || !source || !target) {
+      setTrafficStatus('Select lab, source, and target first.');
+      return;
+    }
+    if (source === target) {
+      setTrafficStatus('Source and target must be different.');
+      return;
+    }
+    setTrafficStatus('Running ping traffic...');
+    const payload = {
+      labName,
+      sudo: $('liveUseSudo').value === 'true',
+      source,
+      target,
+      count: Number.isFinite(count) ? count : 5
+    };
+    const res = await fetch('/topology/traffic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
+    if (!data.ok) {
+      setTrafficStatus(`Traffic failed: ${data.error || 'unknown error'}`);
+      $('liveDetails').textContent = JSON.stringify(data, null, 2);
+      setTrafficOverlay(source, target, false);
+      if (lastLiveData) renderLiveGraph(lastLiveData);
+      return;
+    }
+    const success = pingReceivedCount(data.output || '') > 0;
+    setTrafficOverlay(source, target, success);
+    setTrafficStatus(`Traffic complete: ${source} -> ${target} (${data.targetIp})`);
+    $('liveDetails').textContent = JSON.stringify(data, null, 2);
+    if (lastLiveData) renderLiveGraph(lastLiveData);
+    pollLive();
+  }
+
+  function setTrafficOverlay(source, target, success) {
+    trafficOverlay = {
+      source,
+      target,
+      success,
+      expiresAt: Date.now() + 12000
+    };
+    if (trafficOverlayTimer) clearTimeout(trafficOverlayTimer);
+    trafficOverlayTimer = setTimeout(() => {
+      trafficOverlay = null;
+      if (lastLiveData) renderLiveGraph(lastLiveData);
+    }, 12000);
+  }
+
+  function pingReceivedCount(output) {
+    const patterns = [
+      /(\d+)\s+packets?\s+received/i,
+      /(\d+)\s+received/i
+    ];
+    for (const re of patterns) {
+      const m = re.exec(output || '');
+      if (m && m[1]) return parseInt(m[1], 10) || 0;
+    }
+    return 0;
   }
 
   function spreadX(count, width, margin) {
@@ -122,6 +271,8 @@
     const nodes = data.nodes || [];
     const links = data.links || [];
     const names = nodes.map(n => n.name);
+    const edgeNames = deriveEdgeNames(nodes, links);
+    syncTrafficSelectors(edgeNames);
     links.forEach(link => {
       if (link.a && !names.includes(link.a)) names.push(link.a);
       if (link.b && !names.includes(link.b)) names.push(link.b);
@@ -141,6 +292,8 @@
       line.setAttribute('class', `edge live-link ${state === 'up' ? 'live-link-up' : (state === 'down' ? 'live-link-down' : 'live-link-unknown')}`);
       svg.appendChild(line);
     });
+
+    renderTrafficOverlay(svg, layout, links);
 
     const peerings = data.peerings || [];
     const showPeerings = $('liveShowPeerings') && $('liveShowPeerings').checked;
@@ -229,8 +382,72 @@
       label.setAttribute('text-anchor', 'middle');
       label.textContent = name;
       group.appendChild(label);
+      if (isServer) {
+        group.style.cursor = 'pointer';
+        group.addEventListener('click', () => {
+          selectTrafficNode(name);
+          setTrafficStatus(`Selected ${name}. Pick source and target, then click Generate Traffic.`);
+        });
+      }
       svg.appendChild(group);
     });
+  }
+
+  function renderTrafficOverlay(svg, layout, links) {
+    if (!trafficOverlay) return;
+    if (Date.now() > trafficOverlay.expiresAt) {
+      trafficOverlay = null;
+      return;
+    }
+    const path = shortestPath(links, trafficOverlay.source, trafficOverlay.target);
+    if (path.length < 2) return;
+    const cls = trafficOverlay.success ? 'live-traffic-path live-traffic-success' : 'live-traffic-path live-traffic-fail';
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = layout[path[i]];
+      const b = layout[path[i + 1]];
+      if (!a || !b) continue;
+      const line = document.createElementNS(svgNS, 'line');
+      line.setAttribute('x1', a.x);
+      line.setAttribute('y1', a.y);
+      line.setAttribute('x2', b.x);
+      line.setAttribute('y2', b.y);
+      line.setAttribute('class', cls);
+      svg.appendChild(line);
+    }
+  }
+
+  function shortestPath(links, source, target) {
+    if (!source || !target || source === target) return [];
+    const adj = new Map();
+    (links || []).forEach(l => {
+      if (!l || !l.a || !l.b) return;
+      if (!adj.has(l.a)) adj.set(l.a, new Set());
+      if (!adj.has(l.b)) adj.set(l.b, new Set());
+      adj.get(l.a).add(l.b);
+      adj.get(l.b).add(l.a);
+    });
+    if (!adj.has(source) || !adj.has(target)) return [];
+    const q = [source];
+    const prev = new Map();
+    prev.set(source, '');
+    while (q.length) {
+      const n = q.shift();
+      if (n === target) break;
+      const next = adj.get(n) || new Set();
+      next.forEach(v => {
+        if (prev.has(v)) return;
+        prev.set(v, n);
+        q.push(v);
+      });
+    }
+    if (!prev.has(target)) return [];
+    const rev = [];
+    let cur = target;
+    while (cur) {
+      rev.push(cur);
+      cur = prev.get(cur) || '';
+    }
+    return rev.reverse();
   }
 
   async function pollLive() {
@@ -290,11 +507,16 @@
     if (!$('liveLabSelect')) return;
     applyZoomViewBox();
     loadLabs();
+    syncTrafficSelectors([], true);
     $('liveStartBtn').addEventListener('click', startPolling);
     $('liveStopBtn').addEventListener('click', stopPolling);
     $('liveLabSelect').addEventListener('change', () => {
-      if (pollTimer) pollLive();
+      const labName = $('liveLabSelect').value;
+      syncTrafficSelectors([], true);
+      loadTrafficEdgesFromPlan(labName);
+      pollLive();
     });
+    $('liveTrafficRunBtn').addEventListener('click', runTraffic);
     $('liveShowPeerings').addEventListener('change', () => {
       pollLive();
     });

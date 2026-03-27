@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,6 +48,9 @@ func runContainerCommand(ctx context.Context, target string, useSudo bool, args 
 	cmd := exec.CommandContext(ctx, "docker", cmdArgs...)
 	return cmd.Output()
 }
+
+var runContainerCommandFn = runContainerCommand
+var runInspectFn = runInspect
 
 func runFRRShowJSON(ctx context.Context, n ContainerInfo, useSudo bool, command string) (map[string]any, error) {
 	target := n.ContainerID
@@ -599,7 +604,7 @@ func (h *Handlers) TopologyLive(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	out, err := runInspect(ctx, labPath, req.UseSudo)
+	out, err := runInspectFn(ctx, labPath, req.UseSudo)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, LiveTopologyResponse{OK: false, Error: "inspect failed: " + err.Error()})
 		return
@@ -673,6 +678,186 @@ func (h *Handlers) TopologyLive(w http.ResponseWriter, r *http.Request) {
 		Summary:  summary,
 		PolledAt: time.Now().Format(time.RFC3339),
 	})
+}
+
+func (h *Handlers) TopologyTraffic(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req TrafficRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "bad JSON: " + err.Error()})
+		return
+	}
+
+	req.LabName = strings.TrimSpace(req.LabName)
+	req.Source = strings.TrimSpace(req.Source)
+	req.Target = strings.TrimSpace(req.Target)
+	if req.LabName == "" || req.Source == "" || req.Target == "" {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "labName, source, and target are required"})
+		return
+	}
+	if !isSafeName(req.LabName) || !isSafeName(req.Source) || !isSafeName(req.Target) {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "labName, source, and target must be alphanumeric, dash, or underscore"})
+		return
+	}
+	if req.Source == req.Target {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "source and target must be different"})
+		return
+	}
+
+	labPath := filepath.Join(h.cfg.BaseDir, req.LabName, "lab.clab.yml")
+	if _, err := os.Stat(labPath); err != nil {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "lab file not found at " + labPath})
+		return
+	}
+
+	db, err := labstore.OpenLabDB(h.cfg.BaseDir)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, TrafficResponse{OK: false, Error: err.Error()})
+		return
+	}
+	defer db.Close()
+	plan, err := labstore.LoadLabPlan(db, req.LabName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, TrafficResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	out, err := runInspectFn(ctx, labPath, req.UseSudo)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "inspect failed: " + err.Error()})
+		return
+	}
+	containers, err := inspectNodesFromOutput(out)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, TrafficResponse{OK: false, Error: "parse inspect: " + err.Error()})
+		return
+	}
+	var sourceContainer, targetContainer string
+	for _, c := range containers {
+		short := shortNodeName(c.Name, req.LabName)
+		if short == req.Source {
+			if strings.TrimSpace(c.ContainerID) != "" {
+				sourceContainer = strings.TrimSpace(c.ContainerID)
+			} else {
+				sourceContainer = strings.TrimSpace(c.Name)
+			}
+		}
+		if short == req.Target {
+			if strings.TrimSpace(c.ContainerID) != "" {
+				targetContainer = strings.TrimSpace(c.ContainerID)
+			} else {
+				targetContainer = strings.TrimSpace(c.Name)
+			}
+		}
+	}
+
+	targetIP := edgeIPByName(plan.Nodes, req.Target)
+	if net.ParseIP(targetIP) == nil {
+		targetIP = edgeIPFromStartup(labPath, req.Target)
+	}
+	if net.ParseIP(targetIP) == nil && targetContainer != "" {
+		targetIP = edgeRuntimeIP(ctx, targetContainer, req.UseSudo)
+	}
+	if net.ParseIP(targetIP) == nil {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "target edge IP not found for " + req.Target})
+		return
+	}
+	if sourceContainer == "" {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{OK: false, Error: "source container not found for " + req.Source})
+		return
+	}
+
+	count := req.Count
+	if count <= 0 {
+		count = 5
+	}
+	if count > 50 {
+		count = 50
+	}
+	countStr := strconv.Itoa(count)
+	cmdOut, err := runContainerCommandFn(ctx, sourceContainer, req.UseSudo, "ping", "-c", countStr, "-W", "1", targetIP)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, TrafficResponse{
+			OK:       false,
+			Error:    "traffic command failed: " + err.Error(),
+			LabName:  req.LabName,
+			Source:   req.Source,
+			Target:   req.Target,
+			TargetIP: targetIP,
+			Command:  "ping -c " + countStr + " -W 1 " + targetIP,
+			Output:   string(cmdOut),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, TrafficResponse{
+		OK:       true,
+		LabName:  req.LabName,
+		Source:   req.Source,
+		Target:   req.Target,
+		TargetIP: targetIP,
+		Command:  "ping -c " + countStr + " -W 1 " + targetIP,
+		Output:   string(cmdOut),
+	})
+}
+
+func edgeIPByName(nodes []labplanner.NodePlan, edgeName string) string {
+	for _, n := range nodes {
+		if n.Name != edgeName || n.Role != "edge" {
+			continue
+		}
+		return strings.TrimSpace(n.EdgeIP)
+	}
+	return ""
+}
+
+var edgeAddrCmdRE = regexp.MustCompile(`\bip\s+(?:addr|address)\s+add\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\/[0-9]+\b`)
+
+func edgeIPFromStartup(labPath, edgeName string) string {
+	startup, err := nodeStartupConfig(labPath, edgeName)
+	if err != nil {
+		return ""
+	}
+	m := edgeAddrCmdRE.FindStringSubmatch(startup)
+	if len(m) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
+
+func edgeRuntimeIP(ctx context.Context, container string, useSudo bool) string {
+	out, err := runContainerCommandFn(ctx, container, useSudo, "sh", "-lc", "ip -4 -o addr show scope global")
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(out), "\n")
+	var fallback string
+	for _, line := range lines {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 4 {
+			continue
+		}
+		ifName := strings.TrimSuffix(fields[1], ":")
+		cidr := fields[3]
+		ip := CIDRIP(cidr)
+		if net.ParseIP(ip) == nil {
+			continue
+		}
+		// Prefer data-plane interfaces over the management interface.
+		if strings.HasPrefix(ifName, "eth") && ifName != "eth0" {
+			return ip
+		}
+		if fallback == "" {
+			fallback = ip
+		}
+	}
+	return fallback
 }
 
 func inspectNodesFromOutput(out []byte) ([]ContainerInfo, error) {
@@ -772,10 +957,10 @@ func collectLivePeerings(ctx context.Context, nodes []labplanner.NodePlan, links
 			}
 			peers := extractFRRPeerSummaries(data)
 			for _, p := range peers {
-					peerNode, ok := peerToNode[normalizePeerIP(p.Peer)]
-					if !ok || peerNode == "" || peerNode == n.Name {
-						continue
-					}
+				peerNode, ok := peerToNode[normalizePeerIP(p.Peer)]
+				if !ok || peerNode == "" || peerNode == n.Name {
+					continue
+				}
 				entry := peeringFromSummary(n.Name, peerNode, q.Label, p)
 				key := peeringKey(entry)
 				existing, exists := merged[key]
@@ -1001,7 +1186,7 @@ func (h *Handlers) Inspect(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	out, err := runInspect(ctx, labAbs, req.UseSudo)
+	out, err := runInspectFn(ctx, labAbs, req.UseSudo)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, inspectResp{OK: false, Error: "inspect failed: " + err.Error()})
 		return
@@ -1181,7 +1366,7 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), tout)
 	defer cancel()
-	out, err := runInspect(ctx, labAbs, req.UseSudo)
+	out, err := runInspectFn(ctx, labAbs, req.UseSudo)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, HealthResp{OK: false, Error: "inspect failed: " + err.Error()})
 		return

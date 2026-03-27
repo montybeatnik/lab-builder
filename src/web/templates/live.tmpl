@@ -3,7 +3,7 @@
 {{ define "live_content" }}
 <header class="hero">
   <div>
-    <p class="eyebrow">Arista Lab</p>
+    <p class="eyebrow">LAB BUILDER</p>
     <h1>Live Topology</h1>
     <p class="subhead">Near-real-time topology telemetry. Link state is polled from live node interfaces.</p>
     <nav class="page-nav">
@@ -55,6 +55,30 @@
         <span>Display BGP peerings and AFI/SAFI overlays</span>
       </span>
     </label>
+  </div>
+  <hr>
+  <h3>Generate Edge Traffic</h3>
+  <div class="form-grid">
+    <label>
+      Source edge
+      <select id="liveTrafficSource">
+        <option value="">Select source...</option>
+      </select>
+    </label>
+    <label>
+      Target edge
+      <select id="liveTrafficTarget">
+        <option value="">Select target...</option>
+      </select>
+    </label>
+    <label>
+      Ping count
+      <input id="liveTrafficCount" type="number" min="1" max="50" value="5">
+    </label>
+  </div>
+  <div class="validate-actions">
+    <button id="liveTrafficRunBtn" class="ghost" type="button">Generate Traffic</button>
+    <span id="liveTrafficStatus" class="muted">Select source/target edge nodes.</span>
   </div>
 </section>
 

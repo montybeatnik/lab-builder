@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/montybeatnik/arista-lab/laber/labplanner"
+	"github.com/montybeatnik/arista-lab/laber/labstore"
 )
 
 func TestInspectHandler_MethodNotAllowed(t *testing.T) {
@@ -384,5 +387,165 @@ func TestTopologyLive_BadJSON(t *testing.T) {
 	h.TopologyLive(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected %d got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestTopologyTraffic_MethodNotAllowed(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/topology/traffic", nil)
+	rec := httptest.NewRecorder()
+	h.TopologyTraffic(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected %d got %d", http.StatusMethodNotAllowed, rec.Code)
+	}
+}
+
+func TestTopologyTraffic_BadJSON(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/topology/traffic", strings.NewReader("{bad"))
+	rec := httptest.NewRecorder()
+	h.TopologyTraffic(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestTopologyTraffic_RunsPingFromSourceEdge(t *testing.T) {
+	base := t.TempDir()
+	labDir := filepath.Join(base, "demo")
+	if err := os.MkdirAll(labDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(labDir, "lab.clab.yml"), []byte("name: demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := labstore.OpenLabDB(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := labplanner.LabPlan{
+		Nodes: []labplanner.NodePlan{
+			{Name: "edge1", Role: "edge", EdgeIP: "172.16.0.2", EdgePrefix: 24},
+			{Name: "edge2", Role: "edge", EdgeIP: "172.16.0.3", EdgePrefix: 24},
+		},
+	}
+	if err := labstore.SaveLabPlan(db, "demo", plan, labplanner.ProtocolSet{}); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	origInspect := runInspectFn
+	origContainer := runContainerCommandFn
+	defer func() {
+		runInspectFn = origInspect
+		runContainerCommandFn = origContainer
+	}()
+
+	runInspectFn = func(ctx context.Context, labPath string, useSudo bool) ([]byte, error) {
+		return []byte(`{"demo":[{"name":"clab-demo-edge1","container_id":"cid-edge1"},{"name":"clab-demo-edge2","container_id":"cid-edge2"}]}`), nil
+	}
+	var gotTarget string
+	var gotArgs []string
+	runContainerCommandFn = func(ctx context.Context, target string, useSudo bool, args ...string) ([]byte, error) {
+		gotTarget = target
+		gotArgs = append([]string{}, args...)
+		return []byte("1 packets transmitted, 1 packets received"), nil
+	}
+
+	h := NewHandlers(Config{BaseDir: base}, nil)
+	body := `{"labName":"demo","source":"edge1","target":"edge2","count":3,"sudo":true}`
+	req := httptest.NewRequest(http.MethodPost, "/topology/traffic", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.TopologyTraffic(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var resp TrafficResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected ok response: %#v", resp)
+	}
+	if resp.TargetIP != "172.16.0.3" {
+		t.Fatalf("expected target ip 172.16.0.3, got %#v", resp)
+	}
+	if gotTarget != "cid-edge1" {
+		t.Fatalf("expected source container cid-edge1, got %q", gotTarget)
+	}
+	gotJoined := strings.Join(gotArgs, " ")
+	if !strings.Contains(gotJoined, "ping -c 3 -W 1 172.16.0.3") {
+		t.Fatalf("expected ping command args, got %q", gotJoined)
+	}
+}
+
+func TestTopologyTraffic_FallsBackToStartupEdgeIP(t *testing.T) {
+	base := t.TempDir()
+	labDir := filepath.Join(base, "demo")
+	cfgDir := filepath.Join(labDir, "configs")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	labYAML := `name: demo
+topology:
+  nodes:
+    edge1:
+      kind: linux
+      exec:
+        - ip addr add 172.16.0.2/24 dev eth1
+    edge2:
+      kind: linux
+      exec:
+        - ip addr add 172.16.0.3/24 dev eth1
+`
+	if err := os.WriteFile(filepath.Join(labDir, "lab.clab.yml"), []byte(labYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := labstore.OpenLabDB(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := labplanner.LabPlan{
+		Nodes: []labplanner.NodePlan{
+			{Name: "edge1", Role: "edge"},
+			{Name: "edge2", Role: "edge"},
+		},
+	}
+	if err := labstore.SaveLabPlan(db, "demo", plan, labplanner.ProtocolSet{}); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	origInspect := runInspectFn
+	origContainer := runContainerCommandFn
+	defer func() {
+		runInspectFn = origInspect
+		runContainerCommandFn = origContainer
+	}()
+
+	runInspectFn = func(ctx context.Context, labPath string, useSudo bool) ([]byte, error) {
+		return []byte(`{"demo":[{"name":"clab-demo-edge1","container_id":"cid-edge1"},{"name":"clab-demo-edge2","container_id":"cid-edge2"}]}`), nil
+	}
+	var gotArgs []string
+	runContainerCommandFn = func(ctx context.Context, target string, useSudo bool, args ...string) ([]byte, error) {
+		gotArgs = append([]string{}, args...)
+		return []byte("1 packets transmitted, 1 packets received"), nil
+	}
+
+	h := NewHandlers(Config{BaseDir: base}, nil)
+	body := `{"labName":"demo","source":"edge1","target":"edge2","count":1,"sudo":false}`
+	req := httptest.NewRequest(http.MethodPost, "/topology/traffic", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.TopologyTraffic(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	gotJoined := strings.Join(gotArgs, " ")
+	if !strings.Contains(gotJoined, "ping -c 1 -W 1 172.16.0.3") {
+		t.Fatalf("expected startup-derived target ip in ping args, got %q", gotJoined)
 	}
 }
