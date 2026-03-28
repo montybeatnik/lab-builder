@@ -90,7 +90,26 @@ var walkthroughProfiles = []walkthroughProfile{
 			Name:        "EVPN/VXLAN L3 Routing",
 			Description: "Progress to distributed anycast gateway and inter-VNI routing with verification steps.",
 			DurationMin: 40,
-			Status:      "planned",
+			Status:      "ready",
+		},
+		Request: TopologyRequest{
+			Topology:   "leaf-spine",
+			NodeType:   "frr",
+			SpineCount: 1,
+			LeafCount:  2,
+			EdgeNodes:  2,
+			InfraCIDR:  "10.0.2.0/24",
+			EdgeCIDR:   "172.16.2.0/24",
+			Protocols: labplanner.ProtocolSet{
+				Global: []string{"bgp"},
+				Roles: map[string][]string{
+					"spine": {"bgp"},
+					"leaf":  {"bgp"},
+				},
+			},
+			LabName:    "walkthrough-evpn-vxlan-l3",
+			Force:      true,
+			Monitoring: MonitoringConfig{SNMP: false, GNMI: false},
 		},
 	},
 }
