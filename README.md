@@ -2,7 +2,7 @@
 
 Build, validate, and deploy Containerlab topologies from a web UI.
 
-![Topology Studio futuristic topology preview](docs/images/topology-studio-landing.svg)
+![Topology Studio futuristic topology preview](docs/images/landing-page.png)
 
 ## What This App Does
 - Designs labs from the **Build** page (leaf/spine, hub/spoke, mesh, custom).
