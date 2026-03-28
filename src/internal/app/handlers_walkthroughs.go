@@ -21,6 +21,7 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+// walkthroughProfile binds catalog metadata to a concrete topology request template.
 type walkthroughProfile struct {
 	Item    WalkthroughCatalogItem
 	Request TopologyRequest
@@ -116,6 +117,7 @@ var walkthroughProfiles = []walkthroughProfile{
 
 var runContainerlabLifecycleFn = runContainerlabLifecycle
 
+// walkthroughTerminalSession tracks interactive shell lifecycle/state for walkthrough nodes.
 type walkthroughTerminalSession struct {
 	ID       string
 	LabName  string
@@ -136,6 +138,7 @@ var walkthroughTerminalSessions = struct {
 	m: map[string]*walkthroughTerminalSession{},
 }
 
+// wsTerminalMessage defines the lightweight websocket protocol for the browser terminal.
 type wsTerminalMessage struct {
 	Type string `json:"type"`
 	Data string `json:"data,omitempty"`

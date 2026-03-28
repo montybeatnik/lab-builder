@@ -7,6 +7,8 @@ import (
 )
 
 func NewTemplates() (*template.Template, error) {
+	// Support both "run from src/" and "run from repo root" so local and VM/service
+	// entrypoints resolve templates the same way.
 	root, err := resolveAssetPath("web/templates")
 	if err != nil {
 		return nil, err

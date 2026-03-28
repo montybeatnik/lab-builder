@@ -9,7 +9,7 @@ import (
 	// "github.com/montybeatnik/arista-lab/laber/pkgs/arista"
 )
 
-// PayloadData represents (Aritsa) payload
+// PayloadData captures the JSON-RPC envelope fields expected by EOS eAPI templates.
 type PayloadData struct {
 	Method  string
 	Version int
@@ -18,6 +18,7 @@ type PayloadData struct {
 	ID      int
 }
 
+// RenderTemplate renders a named template file and returns its serialized request body bytes.
 func RenderTemplate(tplPath string, data PayloadData) ([]byte, error) {
 	funcs := template.FuncMap{
 		"toJSON": func(v any) (string, error) {

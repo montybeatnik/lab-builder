@@ -11,14 +11,17 @@ type Handlers struct {
 	templates TemplateExecutor
 }
 
+// TemplateExecutor abstracts template rendering so handlers can be unit-tested without html/template.
 type TemplateExecutor interface {
 	ExecuteTemplate(wr io.Writer, name string, data any) error
 }
 
+// NewHandlers wires config + templates into the HTTP handler methods.
 func NewHandlers(cfg Config, templates TemplateExecutor) *Handlers {
 	return &Handlers{cfg: cfg, templates: templates}
 }
 
+// NewMux registers all HTTP routes for UI pages, APIs, and walkthrough terminal endpoints.
 func NewMux(h *Handlers) (*http.ServeMux, error) {
 	mux := http.NewServeMux()
 	staticDir, err := resolveAssetPath("web/static")
@@ -58,6 +61,7 @@ func NewMux(h *Handlers) (*http.ServeMux, error) {
 	return mux, nil
 }
 
+// NewServer builds the process-level HTTP server with conservative timeout defaults.
 func NewServer(cfg Config) (*http.Server, error) {
 	templates, err := NewTemplates()
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"github.com/montybeatnik/arista-lab/laber/pkgs/renderer"
 )
 
+// BGPSummary renders and executes a `show bgp summary` eAPI request.
 func (c eosClient) BGPSummary() (BGPEvpnSummaryResponse, error) {
 	cmds := []string{"show bgp summary"}
 	tmplPath := "templates/eapi_payload.tmpl"
@@ -28,6 +29,7 @@ func (c eosClient) BGPSummary() (BGPEvpnSummaryResponse, error) {
 	return bgpEvpnSummaryResp, nil
 }
 
+// Version renders and executes a `show version` eAPI request.
 func (c eosClient) Version() (VersionResp, error) {
 	cmds := []string{"show version"}
 	tmplPath := "templates/eapi_payload.tmpl"

@@ -68,6 +68,7 @@ func runFRRShowJSON(ctx context.Context, n ContainerInfo, useSudo bool, command 
 	return parsed, nil
 }
 
+// CEOSNodesFromInspect filters inspect output down to reachable cEOS nodes for eAPI-based checks.
 func CEOSNodesFromInspect(out []byte) (nodes []ContainerInfo, err error) {
 	var parsed InspectResult
 	if err = json.Unmarshal(out, &parsed); err != nil {
@@ -107,6 +108,7 @@ func isFRRNode(n ContainerInfo) bool {
 	return strings.EqualFold(n.Kind, "linux") && strings.Contains(strings.ToLower(n.Image), "frr")
 }
 
+// CIDRIP strips a CIDR suffix when present, returning only the host/address portion.
 func CIDRIP(s string) string {
 	if i := strings.IndexByte(s, '/'); i > 0 {
 		return s[:i]
@@ -114,6 +116,7 @@ func CIDRIP(s string) string {
 	return s
 }
 
+// OnlyNonEmpty normalizes string slices by trimming and dropping blank entries.
 func OnlyNonEmpty(ss []string) (out []string) {
 	for _, s := range ss {
 		if strings.TrimSpace(s) != "" {

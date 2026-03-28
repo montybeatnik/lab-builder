@@ -10,6 +10,7 @@ import (
 	"github.com/montybeatnik/arista-lab/laber/labplanner"
 )
 
+// InterfaceData is template-ready interface intent for one node interface stanza.
 type InterfaceData struct {
 	Name string
 	IP   string
@@ -18,12 +19,14 @@ type InterfaceData struct {
 	Vlan int
 }
 
+// NeighborData captures enough peer metadata to render stable BGP neighbor stanzas.
 type NeighborData struct {
 	IP          string
 	ASN         int
 	Description string
 }
 
+// BGPData is a template-focused projection of BGP intent for one node.
 type BGPData struct {
 	Enabled   bool
 	ASN       int
@@ -32,11 +35,13 @@ type BGPData struct {
 	EVPN      bool
 }
 
+// MPLSData toggles optional MPLS families in node templates.
 type MPLSData struct {
 	LDP  bool
 	RSVP bool
 }
 
+// EVPNMHData models edge multi-homing details needed to render bond/ESI config.
 type EVPNMHData struct {
 	Enabled  bool
 	BondName string
@@ -45,6 +50,7 @@ type EVPNMHData struct {
 	SysMAC   string
 }
 
+// NodeTemplateData is the canonical input model for rendering per-node config templates.
 type NodeTemplateData struct {
 	Hostname      string
 	Loopback      string
@@ -67,6 +73,7 @@ type NodeTemplateData struct {
 	SNMPCommunity string
 }
 
+// RenderNodeConfig renders one node's config from planner output and selected feature flags.
 func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplanner.LinkAssigned, allLinks []labplanner.LinkAssigned, nodeMap map[string]labplanner.NodePlan, snmpEnabled, gnmiEnabled bool) (string, error) {
 	data := NodeTemplateData{
 		Hostname:      node.Name,
@@ -185,6 +192,7 @@ func RenderNodeConfig(tplPath string, node labplanner.NodePlan, links []labplann
 	return buf.String(), nil
 }
 
+// RenderContainerlabYAML builds the deployable lab topology file from computed plan data.
 func RenderContainerlabYAML(labName string, model labplanner.TopologyModel, nodes []labplanner.NodePlan, links []labplanner.LinkAssigned, edgeHosts []labplanner.EdgeHost, monitoring, snmpEnabled bool) string {
 	var b strings.Builder
 	nodeMap := map[string]labplanner.NodePlan{}
@@ -409,6 +417,7 @@ func protocolNet(protocols []string, target, fallback string) string {
 	return fallback
 }
 
+// RenderFRRDaemons emits an FRR daemons file aligned to enabled routing protocols.
 func RenderFRRDaemons(protocols []string) string {
 	var b strings.Builder
 	b.WriteString("zebra=yes\n")
@@ -438,6 +447,7 @@ func yesNo(v bool) string {
 	return "no"
 }
 
+// PrometheusConfig emits scrape targets for optional SNMP/gNMI collectors in generated labs.
 func PrometheusConfig(labName string, nodes []labplanner.NodePlan, snmpEnabled, gnmiEnabled bool) string {
 	var b strings.Builder
 	b.WriteString("global:\n  scrape_interval: 15s\n")
@@ -493,6 +503,7 @@ func snmpTargets(labName string, nodes []labplanner.NodePlan) []string {
 	return targets
 }
 
+// SNMPConfig returns the snmp_exporter module definition used by generated monitoring stacks.
 func SNMPConfig() string {
 	return `
 auths:
@@ -556,6 +567,7 @@ modules:
 `
 }
 
+// FRRSNMPDConfig returns a permissive lab-safe snmpd config for FRR-based nodes.
 func FRRSNMPDConfig() string {
 	return `
 agentaddress udp:161,udp6:[::]:161
@@ -566,6 +578,7 @@ sysContact admin
 `
 }
 
+// GrafanaDatasource returns a minimal Grafana provisioning file for the co-deployed Prometheus.
 func GrafanaDatasource() string {
 	return `
 apiVersion: 1
@@ -578,6 +591,7 @@ datasources:
 `
 }
 
+// GNMIConfig returns a gNMIc scrape config targeting all generated leaf loopbacks.
 func GNMIConfig(labName string) string {
 	return `
 targets:

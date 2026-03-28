@@ -9,6 +9,7 @@ import (
 
 type InspectResult map[string][]ContainerInfo
 
+// ContainerInfo mirrors `containerlab inspect --format json` node entries.
 type ContainerInfo struct {
 	LabName     string `json:"lab_name"`
 	LabPath     string `json:"labPath"`
@@ -43,6 +44,7 @@ type inspectResp struct {
 	RawJSON json.RawMessage `json:"rawJson,omitempty"`
 }
 
+// HealthReq drives active control-plane/data-plane health checks for a selected lab.
 type HealthReq struct {
 	Lab        string `json:"lab"`
 	UseSudo    bool   `json:"sudo"`
@@ -51,30 +53,35 @@ type HealthReq struct {
 	Pass       string `json:"pass"`
 }
 
+// HealthCheck is one named check result surfaced in Health UI and APIs.
 type HealthCheck struct {
 	Name   string `json:"name"`
 	Result string `json:"result"`
 	Detail string `json:"detail,omitempty"`
 }
 
+// NodeHealth groups check results by node for easier per-device troubleshooting.
 type NodeHealth struct {
 	Name   string        `json:"name"`
 	IP     string        `json:"ip"`
 	Checks []HealthCheck `json:"checks"`
 }
 
+// HealthResp is the API response shape for `/health`.
 type HealthResp struct {
 	OK    bool         `json:"ok"`
 	Error string       `json:"error,omitempty"`
 	Nodes []NodeHealth `json:"nodes,omitempty"`
 }
 
+// LabsResponse powers the Lab Manager listing with indexed + filesystem labs.
 type LabsResponse struct {
 	OK    bool                 `json:"ok"`
 	Error string               `json:"error,omitempty"`
 	Labs  []labstore.LabRecord `json:"labs,omitempty"`
 }
 
+// LabPlanResponse exposes persisted planner output for viewer and walkthrough pages.
 type LabPlanResponse struct {
 	OK        bool               `json:"ok"`
 	Error     string             `json:"error,omitempty"`
@@ -104,6 +111,7 @@ type ProtocolSetJSON struct {
 	Roles  map[string][]string `json:"roles"`
 }
 
+// TopologyRequest carries user topology intent from Build/Walkthrough pages.
 type TopologyRequest struct {
 	Topology    string                 `json:"topology"`
 	NodeType    string                 `json:"nodeType"`
@@ -142,6 +150,7 @@ type Traffic struct {
 	Level   int    `json:"level"`
 }
 
+// MonitoringConfig toggles optional telemetry sidecars in generated labs.
 type MonitoringConfig struct {
 	SNMP bool `json:"snmp"`
 	GNMI bool `json:"gnmi"`
@@ -153,6 +162,7 @@ type Check struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+// AddressSummary captures capacity/consumption estimates for infra and edge CIDRs.
 type AddressSummary struct {
 	InfraCIDR   string `json:"infraCidr"`
 	EdgeCIDR    string `json:"edgeCidr"`
@@ -164,6 +174,7 @@ type AddressSummary struct {
 	P2PLinks    int64  `json:"p2pLinks"`
 }
 
+// TopologyResponse returns validation/build-readiness results for a topology request.
 type TopologyResponse struct {
 	OK        bool                     `json:"ok"`
 	Errors    []string                 `json:"errors,omitempty"`
@@ -184,12 +195,14 @@ type BuildResponse struct {
 	Files    []string `json:"files,omitempty"`
 }
 
+// DeployRequest asks the runtime to deploy a generated lab with optional sudo/force flags.
 type DeployRequest struct {
 	LabName string `json:"labName"`
 	UseSudo bool   `json:"sudo"`
 	Force   bool   `json:"force"`
 }
 
+// DeployResponse reports deploy/destroy command output back to the UI.
 type DeployResponse struct {
 	OK     bool   `json:"ok"`
 	Error  string `json:"error,omitempty"`
@@ -202,11 +215,13 @@ type DestroyRequest struct {
 	UseSudo bool   `json:"sudo"`
 }
 
+// RenderConfigRequest asks the backend to render one node config without writing files.
 type RenderConfigRequest struct {
 	TopologyRequest
 	NodeName string `json:"nodeName"`
 }
 
+// RenderConfigResponse returns generated node config snippets for preview/debug.
 type RenderConfigResponse struct {
 	OK       bool     `json:"ok"`
 	Error    string   `json:"error,omitempty"`
@@ -241,6 +256,7 @@ type LabNodeConfigResponse struct {
 	Startup  string `json:"startup,omitempty"`
 }
 
+// LiveTopologyRequest asks the backend for current link and optional peering state.
 type LiveTopologyRequest struct {
 	LabName      string `json:"labName"`
 	UseSudo      bool   `json:"sudo"`
@@ -253,6 +269,7 @@ type LiveEndpointStatus struct {
 	State string `json:"state"`
 }
 
+// LiveLinkStatus represents one topology edge with endpoint-level operational status.
 type LiveLinkStatus struct {
 	A         string               `json:"a"`
 	B         string               `json:"b"`
@@ -277,6 +294,7 @@ type LivePeeringStatus struct {
 	Detail  string `json:"detail,omitempty"`
 }
 
+// LiveTopologyResponse is the snapshot payload for the live topology page.
 type LiveTopologyResponse struct {
 	OK       bool                `json:"ok"`
 	Error    string              `json:"error,omitempty"`
@@ -288,6 +306,7 @@ type LiveTopologyResponse struct {
 	PolledAt string              `json:"polledAt,omitempty"`
 }
 
+// TrafficRequest asks the backend to run a synthetic edge-to-edge ping test.
 type TrafficRequest struct {
 	LabName string `json:"labName"`
 	UseSudo bool   `json:"sudo"`
@@ -307,6 +326,7 @@ type TrafficResponse struct {
 	Output   string `json:"output,omitempty"`
 }
 
+// WalkthroughCatalogItem describes one guided lab option shown in the catalog.
 type WalkthroughCatalogItem struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -321,6 +341,7 @@ type WalkthroughCatalogResponse struct {
 	Items []WalkthroughCatalogItem `json:"items,omitempty"`
 }
 
+// WalkthroughPreflightRequest validates whether a walkthrough can be launched safely.
 type WalkthroughPreflightRequest struct {
 	WalkthroughID string `json:"walkthroughId"`
 	UseSudo       bool   `json:"sudo"`
@@ -334,6 +355,7 @@ type WalkthroughPreflightResponse struct {
 	DeployedLabs  []string `json:"deployedLabs,omitempty"`
 }
 
+// WalkthroughLaunchRequest starts a walkthrough deployment, optionally replacing running labs.
 type WalkthroughLaunchRequest struct {
 	WalkthroughID string `json:"walkthroughId"`
 	UseSudo       bool   `json:"sudo"`
@@ -351,6 +373,7 @@ type WalkthroughLaunchResponse struct {
 	Output          string   `json:"output,omitempty"`
 }
 
+// WalkthroughTerminalRequest executes one-shot commands on a walkthrough node container.
 type WalkthroughTerminalRequest struct {
 	LabName    string `json:"labName"`
 	NodeName   string `json:"nodeName"`
@@ -368,6 +391,7 @@ type WalkthroughTerminalResponse struct {
 	Output   string `json:"output,omitempty"`
 }
 
+// WalkthroughTerminalStartRequest opens an interactive shell session for walkthrough nodes.
 type WalkthroughTerminalStartRequest struct {
 	LabName    string `json:"labName"`
 	NodeName   string `json:"nodeName"`
@@ -394,6 +418,7 @@ type WalkthroughTerminalPollRequest struct {
 	Cursor    int    `json:"cursor"`
 }
 
+// WalkthroughTerminalPollResponse streams incremental output from interactive walkthrough sessions.
 type WalkthroughTerminalPollResponse struct {
 	OK         bool   `json:"ok"`
 	Error      string `json:"error,omitempty"`

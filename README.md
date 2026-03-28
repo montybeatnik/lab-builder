@@ -93,6 +93,54 @@ rate(ifHCInOctets[5m])
 rate(ifHCOutOctets[5m])
 ```
 
+## Contributing
+Contributions are welcome. The goal is to keep changes small, testable, and easy to review.
+
+### Development Workflow
+1. Create a feature branch from `main`.
+2. Make focused changes (one feature/fix per PR).
+3. Rebuild and verify in the VM:
+   ```bash
+   make vm_rebuild
+   make vm_server_status_service
+   ```
+4. Validate the behavior in the UI (`make vm_ui` to print the URL).
+5. Open a PR with a clear summary and verification notes.
+
+### Repo Structure (High Level)
+- `src/internal/app`: HTTP handlers, server wiring, runtime/deploy logic.
+- `src/web/templates`: HTML templates.
+- `src/web/static`: frontend JS/CSS.
+- `src/labplanner`: topology planning/address assignment.
+- `src/configgenerator`: containerlab + node config rendering.
+- `src/labstore`: lab metadata persistence.
+
+### Coding Guidelines
+- Prefer small, explicit changes over broad refactors.
+- Keep backend behavior covered by tests in `src/internal/app/*_test.go` when possible.
+- Preserve existing API/JSON response shapes unless intentionally changing contract.
+- Avoid committing generated/runtime artifacts (for example `.labs/`, `.clab-runs/`, captures, binaries).
+
+### Testing Expectations
+- At minimum, run:
+  ```bash
+  cd src
+  go test ./internal/app
+  ```
+- If your change touches planner/generator logic, also run:
+  ```bash
+  cd src
+  go test ./labplanner ./configgenerator
+  ```
+- If a full `go test ./...` fails due to known unrelated issues, mention that in the PR.
+
+### PR Checklist
+- Problem and scope are clearly described.
+- User-visible behavior changes are documented.
+- Tests were run and results are included.
+- Screenshots/GIFs included for UI changes.
+- Backward compatibility impacts (if any) are called out.
+
 ## Troubleshooting
 - If the VM exists but is stopped:
   ```bash
