@@ -2,9 +2,8 @@
 set -Eeuo pipefail
 trap 'echo "ERROR on line $LINENO. Exiting." >&2' ERR
 
-# Go toolchain (ARM64) — change version if you like
+# Go toolchain — archive is selected dynamically from VM architecture.
 GO_VERSION="1.23.1"
-GO_TGZ="go${GO_VERSION}.linux-arm64.tar.gz"
 
 ### ───────────────────────────
 ### EDIT THESE FOR YOUR SETUP
@@ -15,11 +14,12 @@ CPUS="6"
 MEM="12G"
 DISK="60G"
 
-# Your existing repo (must contain lab.clab.yml and configs/)
-REPO_DIR="/Users/chrishern/src/github.com/montybeatnik/arista-lab"
+# Repo root defaults to this script's directory; can be overridden by env.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="${REPO_DIR:-$SCRIPT_DIR}"
 
-# Path to your **ARM64** cEOS-lab tarball on your Mac
-CEOS_TARBALL="$REPO_DIR/cEOSarm-lab-4.34.2.1F.tar.xz"
+# Optional path to a cEOS-lab tarball on host. If missing, FRR labs still work.
+CEOS_TARBALL="${CEOS_TARBALL:-$REPO_DIR/cEOSarm-lab-4.34.2.1F.tar.xz}"
 
 # How you want the Docker image tagged inside the VM
 CEOS_TAG="ceosimage:4.34.2.1f"
@@ -60,10 +60,13 @@ ensure_multipassd
 
 [[ -d "$REPO_DIR" ]] || err "REPO_DIR not found: $REPO_DIR"
 [[ -f "$REPO_DIR/$LAB_FILE" ]] || err "Lab file not found at: $REPO_DIR/$LAB_FILE"
-[[ -f "$CEOS_TARBALL" ]] || err "cEOS tarball not found: $CEOS_TARBALL"
 
 echo ">>> Using repo:       $REPO_DIR"
-echo ">>> Using cEOS image: $CEOS_TARBALL  ->  $CEOS_TAG"
+if [[ -f "$CEOS_TARBALL" ]]; then
+  echo ">>> Using cEOS image: $CEOS_TARBALL  ->  $CEOS_TAG"
+else
+  echo ">>> cEOS image not found at $CEOS_TARBALL (continuing; FRR-only labs will work)"
+fi
 
 ### ───────────────────────────
 ### launch (or reuse) multipass VM
@@ -88,9 +91,11 @@ else
   multipass mount "$REPO_DIR" "$VM_NAME":/home/ubuntu/lab
 fi
 
-echo ">>> Ensuring ~/images exists and transferring cEOS tarball"
-multipass exec "$VM_NAME" -- bash -lc "mkdir -p ~/images"
-multipass transfer "$CEOS_TARBALL" "$VM_NAME":/home/ubuntu/images/
+if [[ -f "$CEOS_TARBALL" ]]; then
+  echo ">>> Ensuring ~/images exists and transferring cEOS tarball"
+  multipass exec "$VM_NAME" -- bash -lc "mkdir -p ~/images"
+  multipass transfer "$CEOS_TARBALL" "$VM_NAME":/home/ubuntu/images/
+fi
 
 ### ───────────────────────────
 ### install docker, containerlab, and tools
@@ -120,25 +125,27 @@ multipass exec "$VM_NAME" -- bash -lc '
 ### ───────────────────────────
 ### import cEOS image (ARM64), verify arch
 ### ───────────────────────────
-echo ">>> Importing cEOS Docker image as $CEOS_TAG ..."
-multipass exec "$VM_NAME" -- bash -lc "
-  set -euo pipefail
-  ls -lh ~/images
-  if ! sudo docker image inspect '$CEOS_TAG' >/dev/null 2>&1; then
-    sudo docker import ~/images/$(basename "$CEOS_TARBALL") '$CEOS_TAG'
-  else
-    echo 'Docker image $CEOS_TAG already present, skipping import.'
-  fi
+if [[ -f "$CEOS_TARBALL" ]]; then
+  echo ">>> Importing cEOS Docker image as $CEOS_TAG ..."
+  multipass exec "$VM_NAME" -- bash -lc "
+    set -euo pipefail
+    ls -lh ~/images
+    if ! sudo docker image inspect '$CEOS_TAG' >/dev/null 2>&1; then
+      sudo docker import ~/images/$(basename "$CEOS_TARBALL") '$CEOS_TAG'
+    else
+      echo 'Docker image $CEOS_TAG already present, skipping import.'
+    fi
 
-  echo '>>> Verifying image arch...'
-  IMG_ARCH=\$(sudo docker inspect '$CEOS_TAG' --format '{{.Architecture}}')
-  HOST_ARCH=\$(uname -m)
-  echo \"Image arch: \$IMG_ARCH | Host arch: \$HOST_ARCH\"
-  if [[ \"\$IMG_ARCH\" != \"arm64\" && \"\$IMG_ARCH\" != \"aarch64\" ]]; then
-    echo 'ERROR: Imported image is not ARM64. Please import an ARM64 cEOS tarball.' >&2
-    exit 1
-  fi
-"
+    echo '>>> Verifying image arch...'
+    IMG_ARCH=\$(sudo docker inspect '$CEOS_TAG' --format '{{.Architecture}}')
+    HOST_ARCH=\$(uname -m)
+    echo \"Image arch: \$IMG_ARCH | Host arch: \$HOST_ARCH\"
+    if [[ \"\$IMG_ARCH\" != \"arm64\" && \"\$IMG_ARCH\" != \"aarch64\" ]]; then
+      echo 'ERROR: Imported image is not ARM64. Please import an ARM64 cEOS tarball.' >&2
+      exit 1
+    fi
+  "
+fi
 
 ### ───────────────────────────
 ### fix clab labdir ACL (don’t write on mount)
@@ -207,7 +214,7 @@ To deploy manually:
 EOF
 fi
 
-echo ">>> Installing Go ${GO_VERSION} (linux/arm64) in the VM..."
+echo ">>> Installing Go ${GO_VERSION} in the VM..."
 multipass exec "$VM_NAME" -- bash -lc '
   set -euo pipefail
   sudo apt-get update
@@ -221,13 +228,21 @@ multipass exec "$VM_NAME" -- bash -lc '
     CUR=""
   fi
 
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    x86_64|amd64) GO_ARCH="amd64" ;;
+    arm64|aarch64) GO_ARCH="arm64" ;;
+    *) echo "Unsupported VM architecture: $ARCH" >&2; exit 1 ;;
+  esac
+  GO_TGZ="go'"$GO_VERSION"'.linux-${GO_ARCH}.tar.gz"
+
   if [[ "$CUR" != "go'"$GO_VERSION"'" ]]; then
-    echo "Downloading Go '"$GO_VERSION"'..."
-    curl -fsSL "https://go.dev/dl/'"$GO_TGZ"'" -o /tmp/'"$GO_TGZ"'
+    echo "Downloading Go '"$GO_VERSION"' for ${GO_ARCH}..."
+    curl -fsSL "https://go.dev/dl/${GO_TGZ}" -o "/tmp/${GO_TGZ}"
     echo "Installing to /usr/local/go ..."
     sudo rm -rf /usr/local/go
-    sudo tar -C /usr/local -xzf /tmp/'"$GO_TGZ"'
-    rm -f /tmp/'"$GO_TGZ"'
+    sudo tar -C /usr/local -xzf "/tmp/${GO_TGZ}"
+    rm -f "/tmp/${GO_TGZ}"
   else
     echo "Go '"$GO_VERSION"' already installed; skipping."
   fi

@@ -1,0 +1,9 @@
+{{ define "primary_nav" }}
+<nav class="page-nav">
+  <a href="/"{{ if eq .Page "index" }} class="active"{{ end }}>Lab Manager</a>
+  <a href="/walkthroughs"{{ if eq .Page "walkthroughs" }} class="active"{{ end }}>Walkthroughs</a>
+  <a href="/viewer"{{ if eq .Page "viewer" }} class="active"{{ end }}>Lab Viewer</a>
+  <a href="/live"{{ if eq .Page "live" }} class="active"{{ end }}>Live Topology</a>
+  <a href="/lab"{{ if eq .Page "health" }} class="active"{{ end }}>Health</a>
+</nav>
+{{ end }}

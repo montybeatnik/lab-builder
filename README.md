@@ -1,4 +1,4 @@
-# Arista Lab Topology Studio
+# Lab Builder
 
 Build, validate, and deploy Containerlab topologies from a web UI.
 
@@ -6,6 +6,7 @@ Build, validate, and deploy Containerlab topologies from a web UI.
 
 ## What This App Does
 - Designs labs from the **Build** page (leaf/spine, hub/spoke, mesh, custom).
+- Designs labs from the **Lab Manager** page (leaf/spine, hub/spoke, mesh, custom).
 - Includes guided **Lab Walkthroughs** with predefined topologies and learning goals.
 - Generates full lab artifacts under `.labs/<lab-name>/`.
 - Deploys and destroys labs directly from the UI.
@@ -17,6 +18,7 @@ Build, validate, and deploy Containerlab topologies from a web UI.
 - `multipass`
 - `make`
 - `git`
+- Internet access for first-run package/image downloads
 
 From the repo root, run:
 ```bash
@@ -31,7 +33,7 @@ UI available at: http://<vm-ip>:8080
 Open that URL in your browser.
 
 ## First Run Workflow
-1. Go to **Build**.
+1. Go to **Lab Manager**.
 2. Choose topology and node type.
 3. Click **Validate & Preview**.
 4. Click **Generate Lab**.
@@ -100,6 +102,7 @@ rate(ifHCOutOctets[5m])
   ```bash
   make vm_rebuild
   ```
+- If you only have FRR images, that's fine. cEOS image import is optional in `setup-multipass.sh`.
 - If you want a fresh VM:
   ```bash
   multipass stop lab-builder
