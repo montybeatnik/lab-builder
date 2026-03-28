@@ -20,6 +20,91 @@ Build, validate, and deploy Containerlab topologies from a web UI.
 - `git`
 - Internet access for first-run package/image downloads
 
+### Install Prerequisites
+#### macOS (Homebrew)
+```bash
+# install Homebrew first if needed: https://brew.sh
+brew install --cask multipass
+brew install make git
+```
+
+#### Ubuntu / Debian
+```bash
+sudo apt-get update
+sudo apt-get install -y make git
+sudo snap install multipass
+```
+
+#### Verify installs
+```bash
+multipass version
+make --version
+git --version
+```
+
+### Install Troubleshooting
+#### macOS: `multipass` command works but VM actions fail
+Symptoms:
+- `multipass list` hangs or shows daemon/socket errors
+
+Fix:
+```bash
+open -a Multipass
+sudo launchctl kickstart -k system/com.canonical.multipassd
+multipass list
+```
+
+#### Ubuntu/Debian: `snap` not available
+Symptoms:
+- `snap: command not found`
+
+Fix:
+```bash
+sudo apt-get update
+sudo apt-get install -y snapd
+sudo systemctl enable --now snapd
+sudo snap install multipass
+```
+
+#### Ubuntu/Debian: `snap` installed but Multipass won’t start
+Symptoms:
+- `multipass list` fails with daemon errors
+
+Fix:
+```bash
+sudo systemctl restart snapd
+sudo snap restart multipass
+multipass list
+```
+
+#### `make` not found
+Symptoms:
+- `make: command not found`
+
+Fix:
+```bash
+# macOS
+brew install make
+
+# Ubuntu/Debian
+sudo apt-get install -y make
+```
+
+#### Permission denied talking to Multipass
+Symptoms:
+- socket/permission denied errors
+
+Fix:
+```bash
+# macOS
+sudo multipass list
+
+# Linux (add user to multipass group, then re-login)
+sudo usermod -aG multipass "$USER"
+newgrp multipass
+multipass list
+```
+
 From the repo root, run:
 ```bash
 make vm_up
