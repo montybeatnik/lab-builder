@@ -21,7 +21,11 @@ func NewHandlers(cfg Config, templates TemplateExecutor) *Handlers {
 
 func NewMux(h *Handlers) (*http.ServeMux, error) {
 	mux := http.NewServeMux()
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
+	staticDir, err := resolveAssetPath("web/static")
+	if err != nil {
+		return nil, err
+	}
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	mux.HandleFunc("/", h.Index)
 	mux.HandleFunc("/lab", h.Lab)
 	mux.HandleFunc("/viewer", h.Viewer)

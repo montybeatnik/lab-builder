@@ -4,6 +4,7 @@
 	setup_git \
 	vm_up \
 	vm_ensure \
+	vm_mount_repo \
 	vm_setup \
 	vm_deploy \
 	vm_shell \
@@ -33,6 +34,7 @@ setup_git:
 
 VM_NAME ?= lab-builder
 VM_LAB_DIR ?= /home/ubuntu/lab
+HOST_REPO_DIR ?= $(CURDIR)
 
 vm_up: vm_ensure vm_server_test vm_server_build vm_server_install vm_server_start vm_server_status_service vm_ui
 	@echo "VM and server are ready."
@@ -104,17 +106,36 @@ lab_status:
 vm_setup:
 	AUTO_DEPLOY=0 ./setup-multipass.sh
 
-vm_deploy:
+vm_mount_repo: vm_ensure
+	@set -e; \
+	if multipass exec $(VM_NAME) -- bash -lc 'test -f "$(VM_LAB_DIR)/src/go.mod" || test -f "$(VM_LAB_DIR)/go.mod"' >/dev/null 2>&1; then \
+		echo "Repo mount OK at $(VM_LAB_DIR)"; \
+	else \
+		echo "Repo mount missing/broken at $(VM_LAB_DIR); repairing mount"; \
+		multipass umount $(VM_NAME):$(VM_LAB_DIR) >/dev/null 2>&1 || true; \
+		multipass exec $(VM_NAME) -- bash -lc 'mkdir -p "$(VM_LAB_DIR)"' >/dev/null 2>&1 || true; \
+		echo "Mounting $(HOST_REPO_DIR) -> $(VM_LAB_DIR)"; \
+		multipass mount $(HOST_REPO_DIR) $(VM_NAME):$(VM_LAB_DIR); \
+		if multipass exec $(VM_NAME) -- bash -lc 'test -f "$(VM_LAB_DIR)/src/go.mod" || test -f "$(VM_LAB_DIR)/go.mod"' >/dev/null 2>&1; then \
+			echo "Repo mount repaired at $(VM_LAB_DIR)"; \
+		else \
+			echo "ERROR: mount completed but Go app dir still missing under $(VM_LAB_DIR)"; \
+			echo "Run: multipass info $(VM_NAME)"; \
+			exit 1; \
+		fi; \
+	fi
+
+vm_deploy: vm_mount_repo
 	multipass exec $(VM_NAME) -- bash -lc 'set -euo pipefail; cd $(VM_LAB_DIR); arch=$$(uname -m); if [[ "$$arch" == "arm64" || "$$arch" == "aarch64" ]]; then sudo docker pull --platform=linux/arm64 ghcr.io/openconfig/gnmic:latest; else sudo docker pull ghcr.io/openconfig/gnmic:latest; fi; sudo docker pull quay.io/frrouting/frr:9.1.3 || sudo docker pull quay.io/frrouting/frr:latest; export CLAB_LABDIR_BASE=$$HOME/.clab-runs; sudo -E containerlab deploy -t lab.clab.yml --reconfigure'
 
 vm_shell:
 	multipass shell $(VM_NAME)
 
-vm_server:
-	multipass exec $(VM_NAME) -- bash -lc 'cd $(VM_LAB_DIR)/src && /usr/local/go/bin/go run .'
+vm_server: vm_mount_repo
+	multipass exec $(VM_NAME) -- bash -lc 'set -euo pipefail; if [ -f "$(VM_LAB_DIR)/src/go.mod" ]; then APP_DIR="$(VM_LAB_DIR)/src"; elif [ -f "$(VM_LAB_DIR)/go.mod" ]; then APP_DIR="$(VM_LAB_DIR)"; else echo "ERROR: Go app dir not found under $(VM_LAB_DIR)"; exit 1; fi; cd "$$APP_DIR"; /usr/local/go/bin/go run .'
 
-vm_server_bg:
-	multipass exec $(VM_NAME) -- bash -lc 'cd $(VM_LAB_DIR)/src || exit 1; : > /tmp/arista-lab-server.log; /usr/local/go/bin/go build -o /tmp/arista-lab-server . && pkill -f "/tmp/arista-lab-server" || true; setsid /tmp/arista-lab-server > /tmp/arista-lab-server.log 2>&1 < /dev/null & echo $$! > /tmp/arista-lab-server.pid; sleep 1; exit 0'
+vm_server_bg: vm_mount_repo
+	multipass exec $(VM_NAME) -- bash -lc 'set -euo pipefail; if [ -f "$(VM_LAB_DIR)/src/go.mod" ]; then APP_DIR="$(VM_LAB_DIR)/src"; elif [ -f "$(VM_LAB_DIR)/go.mod" ]; then APP_DIR="$(VM_LAB_DIR)"; else echo "ERROR: Go app dir not found under $(VM_LAB_DIR)"; exit 1; fi; cd "$$APP_DIR"; : > /tmp/arista-lab-server.log; /usr/local/go/bin/go build -o /tmp/arista-lab-server . && pkill -f "/tmp/arista-lab-server" || true; setsid /tmp/arista-lab-server > /tmp/arista-lab-server.log 2>&1 < /dev/null & echo $$! > /tmp/arista-lab-server.pid; sleep 1; exit 0'
 
 vm_server_logs:
 	multipass exec $(VM_NAME) -- bash -lc 'test -f /tmp/arista-lab-server.log && tail -n 200 /tmp/arista-lab-server.log || echo "no log file yet"'
@@ -125,17 +146,17 @@ vm_server_status:
 vm_server_stop:
 	multipass exec $(VM_NAME) -- bash -lc 'if test -f /tmp/arista-lab-server.pid; then kill $$(cat /tmp/arista-lab-server.pid) || true; else pkill -f "go run ." || true; fi'
 
-vm_server_test:
-	multipass exec $(VM_NAME) -- bash -lc 'cd $(VM_LAB_DIR)/src && /usr/local/go/bin/go test .'
+vm_server_test: vm_mount_repo
+	multipass exec $(VM_NAME) -- bash -lc 'set -euo pipefail; if [ -f "$(VM_LAB_DIR)/src/go.mod" ]; then APP_DIR="$(VM_LAB_DIR)/src"; elif [ -f "$(VM_LAB_DIR)/go.mod" ]; then APP_DIR="$(VM_LAB_DIR)"; else echo "ERROR: Go app dir not found under $(VM_LAB_DIR)"; exit 1; fi; cd "$$APP_DIR"; /usr/local/go/bin/go test .'
 
-vm_server_build:
-	multipass exec $(VM_NAME) -- bash -lc 'cd $(VM_LAB_DIR)/src && /usr/local/go/bin/go mod tidy && /usr/local/go/bin/go build -o /tmp/arista-lab-server .'
+vm_server_build: vm_mount_repo
+	multipass exec $(VM_NAME) -- bash -lc 'set -euo pipefail; if [ -f "$(VM_LAB_DIR)/src/go.mod" ]; then APP_DIR="$(VM_LAB_DIR)/src"; elif [ -f "$(VM_LAB_DIR)/go.mod" ]; then APP_DIR="$(VM_LAB_DIR)"; else echo "ERROR: Go app dir not found under $(VM_LAB_DIR)"; exit 1; fi; cd "$$APP_DIR"; /usr/local/go/bin/go mod tidy && /usr/local/go/bin/go build -o /tmp/arista-lab-server .'
 
 vm_server_run:
 	multipass exec $(VM_NAME) -- bash -lc '/tmp/arista-lab-server'
 
-vm_server_install:
-	multipass exec $(VM_NAME) -- bash -lc 'mkdir -p /home/ubuntu/.config/systemd/user && printf "%s\n" "[Unit]" "Description=Arista Lab Go Server" "After=network.target" "" "[Service]" "WorkingDirectory=$(VM_LAB_DIR)/src" "ExecStart=/tmp/arista-lab-server" "Restart=on-failure" "Environment=CLAB_LABDIR_BASE=/home/ubuntu/.clab-runs" "" "[Install]" "WantedBy=default.target" > /home/ubuntu/.config/systemd/user/arista-lab-server.service'
+vm_server_install: vm_mount_repo
+	multipass exec $(VM_NAME) -- bash -lc 'set -euo pipefail; if [ -f "$(VM_LAB_DIR)/src/go.mod" ]; then APP_DIR="$(VM_LAB_DIR)/src"; elif [ -f "$(VM_LAB_DIR)/go.mod" ]; then APP_DIR="$(VM_LAB_DIR)"; else echo "ERROR: Go app dir not found under $(VM_LAB_DIR)"; exit 1; fi; mkdir -p /home/ubuntu/.config/systemd/user && printf "%s\n" "[Unit]" "Description=Arista Lab Go Server" "After=network.target" "" "[Service]" "WorkingDirectory=$$APP_DIR" "ExecStart=/tmp/arista-lab-server" "Restart=on-failure" "Environment=CLAB_LABDIR_BASE=/home/ubuntu/.clab-runs" "" "[Install]" "WantedBy=default.target" > /home/ubuntu/.config/systemd/user/arista-lab-server.service'
 
 vm_server_start:
 	multipass exec $(VM_NAME) -- bash -lc 'systemctl --user daemon-reload && systemctl --user enable --now arista-lab-server.service'

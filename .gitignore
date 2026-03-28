@@ -3,3 +3,7 @@ clab-evpn-rdma-fabric
 cEOSarm-lab-4.34.2.1F.tar.xz
 .labs/
 *.pcap
+.clab-runs/
+lab.json
+ver.json
+src/tools/apply_ospf_lo0/script
