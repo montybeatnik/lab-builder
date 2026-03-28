@@ -17,6 +17,20 @@
     fitAddon: null
   };
 
+  function launchBtn() {
+    return $('walkthroughLaunchBtn');
+  }
+
+  function setLaunchBusy(isBusy, label) {
+    const btn = launchBtn();
+    if (!btn) return;
+    if (!btn.dataset.defaultLabel) {
+      btn.dataset.defaultLabel = btn.textContent || 'Deploy Selected Walkthrough';
+    }
+    btn.disabled = Boolean(isBusy);
+    btn.textContent = isBusy ? (label || 'Deploying...') : btn.dataset.defaultLabel;
+  }
+
   function setStatus(text, cls) {
     const el = $('walkthroughStatus');
     if (!el) return;
@@ -270,7 +284,216 @@
         }
       ];
     }
-    return [];
+    if (id === 'evpn-vxlan-routing') {
+      return [
+        {
+          title: 'Verify Underlay Reachability',
+          goal: 'Confirm spine/leaf ipv4 unicast BGP is established before enabling EVPN overlay.',
+          commands: [
+            {
+              node: 'spine1',
+              mode: 'vtysh',
+              lines: [
+                'show ip bgp summary'
+              ]
+            },
+            {
+              node: 'leaf1 / leaf2',
+              mode: 'vtysh',
+              lines: [
+                'show ip bgp summary'
+              ]
+            }
+          ],
+          validate: 'All underlay neighbors should be Established.'
+        },
+        {
+          title: 'Build L2 VNIs On Leaves',
+          goal: 'Create bridge and vxlan interfaces for tenant VNIs (example: 100 and 200).',
+          commands: [
+            {
+              node: 'leaf1 / leaf2',
+              mode: 'shell',
+              lines: [
+                'ip link add br100 type bridge',
+                'ip link add br200 type bridge',
+                'ip link add vxlan100 type vxlan id 100 local <leaf-loopback> dstport 4789 nolearning',
+                'ip link add vxlan200 type vxlan id 200 local <leaf-loopback> dstport 4789 nolearning',
+                'ip link set vxlan100 master br100',
+                'ip link set vxlan200 master br200',
+                'ip link set br100 up && ip link set br200 up',
+                'ip link set vxlan100 up && ip link set vxlan200 up'
+              ]
+            }
+          ],
+          validate: 'Confirm VNI interfaces exist with `ip -d link show vxlan100` and `ip -d link show vxlan200`.'
+        },
+        {
+          title: 'Enable EVPN Address Family',
+          goal: 'Activate l2vpn evpn neighbors on spine and leaves and advertise VNIs.',
+          commands: [
+            {
+              node: 'spine1',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp <spine-asn>',
+                'address-family l2vpn evpn',
+                'neighbor <leaf1-loopback> activate',
+                'neighbor <leaf2-loopback> activate',
+                'advertise-all-vni',
+                'end',
+                'write memory'
+              ]
+            },
+            {
+              node: 'leaf1 / leaf2',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp <leaf-asn>',
+                'address-family l2vpn evpn',
+                'neighbor <spine-loopback> activate',
+                'advertise-all-vni',
+                'end',
+                'write memory'
+              ]
+            }
+          ],
+          validate: 'Use `show bgp l2vpn evpn summary` and verify EVPN sessions are Established.'
+        },
+        {
+          title: 'Configure Anycast Gateway (IRB)',
+          goal: 'Create L3 SVIs for each VNI on both leaves using the same anycast gateway IP/MAC.',
+          commands: [
+            {
+              node: 'leaf1 / leaf2',
+              mode: 'shell',
+              lines: [
+                'ip link add vlan100 type dummy',
+                'ip link add vlan200 type dummy',
+                'ip addr add 172.16.100.1/24 dev vlan100',
+                'ip addr add 172.16.200.1/24 dev vlan200',
+                'ip link set vlan100 up && ip link set vlan200 up'
+              ]
+            },
+            {
+              node: 'leaf1 / leaf2',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp <leaf-asn>',
+                'address-family l2vpn evpn',
+                'advertise ipv4 unicast',
+                'end',
+                'write memory'
+              ]
+            }
+          ],
+          validate: 'Both leaves should advertise type-5 prefixes for tenant subnets.'
+        },
+        {
+          title: 'Place Endpoints Into Different VNIs',
+          goal: 'Attach edge1 to subnet/VNI 100 and edge2 to subnet/VNI 200 with gateway on 172.16.x.1.',
+          commands: [
+            {
+              node: 'edge1',
+              mode: 'shell',
+              lines: [
+                'ip addr flush dev eth1',
+                'ip addr add 172.16.100.11/24 dev eth1',
+                'ip route add default via 172.16.100.1'
+              ]
+            },
+            {
+              node: 'edge2',
+              mode: 'shell',
+              lines: [
+                'ip addr flush dev eth1',
+                'ip addr add 172.16.200.22/24 dev eth1',
+                'ip route add default via 172.16.200.1'
+              ]
+            }
+          ],
+          validate: 'Check `ip route` on each edge and verify the default route points to the anycast gateway.'
+        },
+        {
+          title: 'Validate Inter-VNI Routing',
+          goal: 'Confirm routed east-west traffic between VNI 100 and VNI 200 endpoints.',
+          commands: [
+            {
+              node: 'edge1',
+              mode: 'shell',
+              lines: [
+                'ping -c 3 172.16.200.22'
+              ]
+            },
+            {
+              node: 'leaf1 / leaf2',
+              mode: 'vtysh',
+              lines: [
+                'show bgp l2vpn evpn route type prefix'
+              ]
+            }
+          ],
+          validate: 'Ping should succeed and EVPN type-5 routes should be visible on leaves.'
+        }
+      ];
+    }
+    return [
+      {
+        title: 'Inspect Topology And Baseline',
+        goal: 'Confirm all nodes are running and underlay adjacencies are healthy before applying walkthrough-specific config.',
+        commands: [
+          {
+            node: 'spine / leaves',
+            mode: 'vtysh',
+            lines: [
+              'show ip bgp summary'
+            ]
+          },
+          {
+            node: 'edge nodes',
+            mode: 'shell',
+            lines: [
+              'ip -br a',
+              'ip route'
+            ]
+          }
+        ],
+        validate: 'All expected sessions and interfaces should be present before proceeding.'
+      },
+      {
+        title: 'Apply Scenario Config',
+        goal: 'Apply the intended walkthrough config to fabric and edge nodes in small increments.',
+        commands: [
+          'Apply config in the node terminal based on walkthrough objective.',
+          'Commit/Save config where needed.'
+        ],
+        validate: 'No command errors and expected control-plane state appears.'
+      },
+      {
+        title: 'Run End-To-End Validation',
+        goal: 'Verify data plane and control plane from both endpoint and leaf perspectives.',
+        commands: [
+          {
+            node: 'edge nodes',
+            mode: 'shell',
+            lines: [
+              'ping -c 3 <remote-endpoint-ip>'
+            ]
+          },
+          {
+            node: 'leaf nodes',
+            mode: 'vtysh',
+            lines: [
+              'show bgp l2vpn evpn summary'
+            ]
+          }
+        ],
+        validate: 'Traffic succeeds and EVPN/BGP state is stable.'
+      }
+    ];
   }
 
   async function loadCatalog() {
@@ -283,6 +506,7 @@
       return;
     }
     body.innerHTML = '';
+    let autoSelected = false;
     data.items.forEach(item => {
       const row = document.createElement('tr');
       row.innerHTML = `
@@ -303,12 +527,22 @@
         runPreflight(item.id);
       });
       body.appendChild(row);
+
+      if (!autoSelected && !state.selectedID && item.status === 'ready') {
+        autoSelected = true;
+        setSelected(item.id, item.name, item.status);
+        state.steps = stepsForWalkthrough(item.id);
+        state.stepIndex = 0;
+        renderStepper();
+        runPreflight(item.id);
+      }
     });
   }
 
   async function runPreflight(id) {
     const out = $('walkthroughOutput');
     if (!id) return;
+    setLaunchBusy(true, 'Checking...');
     setStatus('Checking existing deployed labs...', 'status-pending');
     const payload = {
       walkthroughId: id,
@@ -322,6 +556,7 @@
     const data = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
     out.hidden = false;
     out.textContent = JSON.stringify(data, null, 2);
+    setLaunchBusy(false);
     if (!data.ok) {
       setStatus('Preflight failed', 'status-fail');
       return;
@@ -337,9 +572,14 @@
     const out = $('walkthroughOutput');
     if (!state.selectedID) {
       setStatus('Select a walkthrough first', 'status-idle');
+      out.hidden = false;
+      out.textContent = 'No walkthrough selected. Choose one from the catalog first.';
       return;
     }
+    setLaunchBusy(true, 'Deploying...');
     setStatus('Launching walkthrough lab...', 'status-pending');
+    out.hidden = false;
+    out.textContent = 'Launching walkthrough lab...';
     const payload = {
       walkthroughId: state.selectedID,
       sudo: $('walkthroughUseSudo').value === 'true',
@@ -353,6 +593,7 @@
     const data = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
     out.hidden = false;
     out.textContent = JSON.stringify(data, null, 2);
+    setLaunchBusy(false);
 
     if (data.requiresConfirm) {
       const existingList = data.deployedLabs || data.destroyedLabs || [];
@@ -368,6 +609,9 @@
       return;
     }
     setStatus('Walkthrough lab deployed', 'status-pass');
+    const walkthroughID = data.walkthroughId || state.selectedID;
+    state.steps = stepsForWalkthrough(walkthroughID);
+    state.stepIndex = 0;
     state.activeLab = data.labName || '';
     await loadPlanAndRender();
     $('walkthroughRunner').hidden = false;
