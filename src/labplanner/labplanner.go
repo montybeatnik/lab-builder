@@ -5,22 +5,26 @@ import (
 	"strings"
 )
 
+// TopologyNode is a user-selected node before planner-derived attributes are assigned.
 type TopologyNode struct {
 	Name     string `json:"name"`
 	Role     string `json:"role"`
 	NodeType string `json:"nodeType,omitempty"`
 }
 
+// TopologyLink is an intent-level edge between two named nodes before interface/IP assignment.
 type TopologyLink struct {
 	A string `json:"a"`
 	B string `json:"b"`
 }
 
+// ProtocolSet carries protocol intent globally and by role so generation stays role-driven.
 type ProtocolSet struct {
 	Global []string            `json:"global"`
 	Roles  map[string][]string `json:"roles"`
 }
 
+// TopologyModel is the validated UI request normalized into a planner-friendly topology graph.
 type TopologyModel struct {
 	Topology   string         `json:"topology"`
 	Nodes      []TopologyNode `json:"nodes"`
@@ -30,6 +34,7 @@ type TopologyModel struct {
 	Protocols  ProtocolSet    `json:"protocols"`
 }
 
+// NodePlan is the per-node derived plan used by config and topology renderers.
 type NodePlan struct {
 	Name       string
 	Role       string
@@ -41,6 +46,7 @@ type NodePlan struct {
 	Protocols  []string
 }
 
+// LinkAssigned is a topology link with concrete interface names and addressing.
 type LinkAssigned struct {
 	A      string
 	B      string
@@ -51,17 +57,20 @@ type LinkAssigned struct {
 	BIP    string
 }
 
+// LabPlan is the full computed output consumed by file generation and deployment handlers.
 type LabPlan struct {
 	Nodes     []NodePlan
 	Links     []LinkAssigned
 	EdgeHosts []EdgeHost
 }
 
+// EdgeAttachment lets callers pin specific edge hosts to target fabric nodes.
 type EdgeAttachment struct {
 	Edge   string
 	Target string
 }
 
+// EdgeHost describes generated edge endpoint addressing and uplink interfaces.
 type EdgeHost struct {
 	Name    string
 	IP      string
@@ -69,6 +78,7 @@ type EdgeHost struct {
 	IfNames []string
 }
 
+// BuildLabPlan converts a validated topology model into deployable node/link/address assignments.
 func BuildLabPlan(infraCIDR, edgeCIDR string, model TopologyModel, attachments []EdgeAttachment) (LabPlan, error) {
 	nodes := assignASNs(model.Nodes, model.Protocols)
 	allLinks := append([]TopologyLink{}, model.Links...)
@@ -97,6 +107,7 @@ func BuildLabPlan(infraCIDR, edgeCIDR string, model TopologyModel, attachments [
 	}, nil
 }
 
+// NormalizeProtocols deduplicates/normalizes protocol intent so later stages can trust it.
 func NormalizeProtocols(p ProtocolSet) ProtocolSet {
 	out := ProtocolSet{
 		Global: uniqueStrings(p.Global),
@@ -112,6 +123,7 @@ func NormalizeProtocols(p ProtocolSet) ProtocolSet {
 	return out
 }
 
+// ProtocolsForRole resolves role-specific protocols layered on top of global defaults.
 func ProtocolsForRole(role string, protocols ProtocolSet) []string {
 	list := append([]string{}, protocols.Global...)
 	if roleList, ok := protocols.Roles[role]; ok {
@@ -120,6 +132,7 @@ func ProtocolsForRole(role string, protocols ProtocolSet) []string {
 	return uniqueStrings(list)
 }
 
+// ContainsProtocol performs case-insensitive membership checks for protocol feature switches.
 func ContainsProtocol(list []string, target string) bool {
 	for _, item := range list {
 		if strings.EqualFold(item, target) {
@@ -129,6 +142,7 @@ func ContainsProtocol(list []string, target string) bool {
 	return false
 }
 
+// EdgeNodeNames provides stable generated edge host names used across planner and templates.
 func EdgeNodeNames(count int) []string {
 	var names []string
 	for i := 1; i <= count; i++ {
@@ -137,6 +151,7 @@ func EdgeNodeNames(count int) []string {
 	return names
 }
 
+// EdgeLinks computes edge-to-fabric attachment links including optional multi-homing fanout.
 func EdgeLinks(model TopologyModel, edges []string, attachments []EdgeAttachment) []TopologyLink {
 	if len(edges) == 0 {
 		return nil

@@ -17,12 +17,14 @@ type LabRecord struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// LabPlanView is a persistence-friendly projection used by runtime/live endpoints.
 type LabPlanView struct {
 	Nodes     []labplanner.NodePlan
 	Links     []labplanner.LinkAssigned
 	Protocols labplanner.ProtocolSet
 }
 
+// OpenLabDB opens (and lazily initializes) the per-basedir SQLite index for generated labs.
 func OpenLabDB(baseDir string) (*sql.DB, error) {
 	dbPath := filepath.Join(baseDir, ".lab-index.sqlite")
 	db, err := sql.Open("sqlite", dbPath)
@@ -36,6 +38,7 @@ func OpenLabDB(baseDir string) (*sql.DB, error) {
 	return db, nil
 }
 
+// UpsertLab keeps the lab index aligned with the latest generated lab path and timestamp.
 func UpsertLab(db *sql.DB, name, path string) error {
 	_, err := db.Exec(`
 		INSERT INTO labs (name, path, created_at)
@@ -47,6 +50,7 @@ func UpsertLab(db *sql.DB, name, path string) error {
 	return err
 }
 
+// DeleteLab removes all indexed records for a lab so stale plans do not survive deletions.
 func DeleteLab(db *sql.DB, name string) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -69,6 +73,7 @@ func DeleteLab(db *sql.DB, name string) error {
 	return tx.Commit()
 }
 
+// ListLabs returns labs ordered by recency to power UI listing and "last touched" semantics.
 func ListLabs(db *sql.DB) ([]LabRecord, error) {
 	rows, err := db.Query(`
 		SELECT name, path, created_at
@@ -94,6 +99,7 @@ func ListLabs(db *sql.DB) ([]LabRecord, error) {
 	return labs, rows.Err()
 }
 
+// SaveLabPlan stores normalized node/link/protocol plan state for later runtime introspection.
 func SaveLabPlan(db *sql.DB, labName string, plan labplanner.LabPlan, protocols labplanner.ProtocolSet) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -149,6 +155,7 @@ func SaveLabPlan(db *sql.DB, labName string, plan labplanner.LabPlan, protocols 
 	return tx.Commit()
 }
 
+// LoadLabPlan rehydrates stored planner state for viewer/live/health endpoints.
 func LoadLabPlan(db *sql.DB, labName string) (LabPlanView, error) {
 	var out LabPlanView
 	rows, err := db.Query(`

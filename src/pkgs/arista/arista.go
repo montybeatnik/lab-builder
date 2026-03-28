@@ -1,18 +1,18 @@
 package arista
 
-// Top-level JSON-RPC response
+// BGPEvpnSummaryResponse mirrors EOS JSON-RPC output for `show bgp summary`.
 type BGPEvpnSummaryResponse struct {
 	JSONRPC string                 `json:"jsonrpc"`
 	ID      int                    `json:"id"`
 	Result  []BGPEvpnSummaryResult `json:"result"`
 }
 
-// Each element in "result" has a "vrfs" map (keys like "default")
+// BGPEvpnSummaryResult groups BGP summary data by VRF name.
 type BGPEvpnSummaryResult struct {
 	Vrfs map[string]VRF `json:"vrfs"`
 }
 
-// A VRF contains router info and a map of BGP peers keyed by neighbor IP
+// VRF holds router metadata and peers keyed by neighbor address.
 type VRF struct {
 	VRF      string          `json:"vrf"`
 	RouterID string          `json:"routerId"`
@@ -20,7 +20,7 @@ type VRF struct {
 	Peers    map[string]Peer `json:"peers"`
 }
 
-// Peer is one neighbor entry as reported by EOS
+// Peer is one BGP neighbor snapshot as reported by EOS.
 type Peer struct {
 	Version          int     `json:"version"`
 	MsgReceived      int     `json:"msgReceived"`
@@ -36,13 +36,14 @@ type Peer struct {
 	PrefixAdvertised int     `json:"prefixAdvertised"`
 }
 
-// Version represents the version of the device. 
+// VersionResp mirrors EOS JSON-RPC output for `show version`.
 type VersionResp struct {
 	Jsonrpc string `json:"jsonrpc"`
 	ID      int    `json:"id"`
 	Result  []VersionDetails `json:"result"`
 }
 
+// VersionDetails carries device inventory/build fields returned by EOS.
 type VersionDetails struct {
 	MfgName            string  `json:"mfgName"`
 	ModelName          string  `json:"modelName"`

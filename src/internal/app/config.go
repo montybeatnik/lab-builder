@@ -12,6 +12,7 @@ type Config struct {
 	BaseDir string
 }
 
+// DefaultConfig encodes the production-like VM defaults used by make targets and systemd.
 func DefaultConfig() Config {
 	return Config{
 		Listen:  ":8080",
@@ -19,6 +20,7 @@ func DefaultConfig() Config {
 	}
 }
 
+// SanitizeLabPath constrains caller-provided lab paths to BaseDir to prevent path traversal.
 func (c Config) SanitizeLabPath(p string) (string, error) {
 	if p == "" {
 		return "", errors.New("lab file required")

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 )
 
+// resolveAssetPath supports both repo-root and src-root execution contexts.
 func resolveAssetPath(path string) (string, error) {
 	candidates := []string{
 		path,
@@ -20,4 +21,3 @@ func resolveAssetPath(path string) (string, error) {
 	}
 	return "", fmt.Errorf("asset path not found: %s (tried %q)", path, candidates)
 }
-

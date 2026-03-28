@@ -480,6 +480,7 @@ func resolveTemplatePath(rel string) string {
 	return rel
 }
 
+// BuildTopologyModel validates and normalizes UI topology input into planner-ready graph intent.
 func BuildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string, []string) {
 	var errs []string
 	var warns []string
