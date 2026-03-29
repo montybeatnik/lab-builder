@@ -19,6 +19,12 @@
   const liveTraffic = {
     edges: []
   };
+  const liveTerminal = {
+    node: '',
+    socket: null,
+    xterm: null,
+    fitAddon: null
+  };
 
   function setStatus(text, cls) {
     const status = $('liveStatus');
@@ -31,6 +37,126 @@
     const el = $('liveTrafficStatus');
     if (!el) return;
     el.textContent = text;
+  }
+
+  function ensureTerminalVisible() {
+    const panel = $('liveConsolePanel');
+    if (!panel || panel.hidden) return;
+    const rect = panel.getBoundingClientRect();
+    const viewportH = window.innerHeight || document.documentElement.clientHeight || 800;
+    if (rect.bottom > viewportH - 16) {
+      window.scrollBy({ top: rect.bottom - (viewportH - 16), behavior: 'smooth' });
+    }
+  }
+
+  function initLiveXTerm() {
+    const host = $('liveTerminalScreen');
+    if (!host) return;
+    if (liveTerminal.xterm) {
+      liveTerminal.xterm.dispose();
+      liveTerminal.xterm = null;
+    }
+    if (typeof window.Terminal !== 'function') {
+      host.textContent = 'Terminal UI failed to load (xterm.js missing).';
+      return;
+    }
+    liveTerminal.xterm = new window.Terminal({
+      cursorBlink: true,
+      fontSize: 13,
+      lineHeight: 1.2,
+      convertEol: true,
+      theme: {
+        background: '#050b19',
+        foreground: '#d1fae5',
+        cursor: '#7dd3fc'
+      }
+    });
+    liveTerminal.fitAddon = null;
+    if (window.FitAddon && typeof window.FitAddon.FitAddon === 'function') {
+      liveTerminal.fitAddon = new window.FitAddon.FitAddon();
+      liveTerminal.xterm.loadAddon(liveTerminal.fitAddon);
+    }
+    host.innerHTML = '';
+    liveTerminal.xterm.open(host);
+    if (liveTerminal.fitAddon) liveTerminal.fitAddon.fit();
+    liveTerminal.xterm.onData(data => {
+      if (!liveTerminal.socket || liveTerminal.socket.readyState !== WebSocket.OPEN) return;
+      liveTerminal.socket.send(JSON.stringify({ type: 'input', data }));
+    });
+    liveTerminal.xterm.onResize(size => {
+      if (!liveTerminal.socket || liveTerminal.socket.readyState !== WebSocket.OPEN) return;
+      liveTerminal.socket.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
+    });
+  }
+
+  async function closeLiveTerminalSession() {
+    if (liveTerminal.socket) {
+      try {
+        liveTerminal.socket.send(JSON.stringify({ type: 'close' }));
+      } catch {}
+      liveTerminal.socket.close();
+      liveTerminal.socket = null;
+    }
+  }
+
+  async function startLiveTerminalSession(nodeName) {
+    const labName = $('liveLabSelect') ? $('liveLabSelect').value : '';
+    if (!labName || !nodeName) return;
+    liveTerminal.node = nodeName;
+    await closeLiveTerminalSession();
+    initLiveXTerm();
+    const panel = $('liveConsolePanel');
+    const nodeLabel = $('liveConsoleNode');
+    if (panel) panel.hidden = false;
+    if (nodeLabel) nodeLabel.textContent = `Selected node: ${nodeName}`;
+    ensureTerminalVisible();
+
+    const qs = new URLSearchParams({
+      labName,
+      nodeName,
+      sudo: String($('liveUseSudo').value === 'true'),
+      timeoutSec: '30'
+    });
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsURL = `${scheme}://${window.location.host}/walkthroughs/terminal/ws?${qs.toString()}`;
+    const ws = new WebSocket(wsURL);
+    liveTerminal.socket = ws;
+    ws.addEventListener('open', () => {
+      if (liveTerminal.fitAddon) liveTerminal.fitAddon.fit();
+      if (liveTerminal.xterm) {
+        liveTerminal.xterm.focus();
+        liveTerminal.xterm.writeln('\x1b[90m[interactive terminal ready]\x1b[0m');
+        ws.send(JSON.stringify({ type: 'resize', cols: liveTerminal.xterm.cols || 80, rows: liveTerminal.xterm.rows || 24 }));
+      }
+      setStatus(`Terminal connected: ${nodeName}`, 'status-pass');
+    });
+    ws.addEventListener('message', ev => {
+      let msg = null;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch {
+        if (liveTerminal.xterm) liveTerminal.xterm.write(String(ev.data));
+        return;
+      }
+      if (msg.type === 'output' && liveTerminal.xterm) {
+        const out = String(msg.data || '');
+        liveTerminal.xterm.write(out);
+        if (out.includes('\u001b[6n') || out.includes('[6n')) {
+          if (liveTerminal.socket && liveTerminal.socket.readyState === WebSocket.OPEN) {
+            liveTerminal.socket.send(JSON.stringify({ type: 'input', data: '\u001b[1;1R' }));
+          }
+        }
+      } else if (msg.type === 'error' && liveTerminal.xterm) {
+        liveTerminal.xterm.writeln(`\n[error] ${msg.data || 'terminal error'}`);
+      }
+    });
+    ws.addEventListener('close', () => {
+      if (liveTerminal.socket === ws) liveTerminal.socket = null;
+      if (liveTerminal.xterm) liveTerminal.xterm.writeln('\n[session closed]');
+    });
+    ws.addEventListener('error', () => {
+      setStatus('Terminal connection failed', 'status-fail');
+    });
   }
 
   async function loadLabs() {
@@ -382,13 +508,14 @@
       label.setAttribute('text-anchor', 'middle');
       label.textContent = name;
       group.appendChild(label);
-      if (isServer) {
-        group.style.cursor = 'pointer';
-        group.addEventListener('click', () => {
+      group.style.cursor = 'pointer';
+      group.addEventListener('click', () => {
+        if (isServer) {
           selectTrafficNode(name);
           setTrafficStatus(`Selected ${name}. Pick source and target, then click Generate Traffic.`);
-        });
-      }
+        }
+        startLiveTerminalSession(name);
+      });
       svg.appendChild(group);
     });
   }
@@ -512,6 +639,9 @@
     $('liveStopBtn').addEventListener('click', stopPolling);
     $('liveLabSelect').addEventListener('change', () => {
       const labName = $('liveLabSelect').value;
+      closeLiveTerminalSession();
+      const panel = $('liveConsolePanel');
+      if (panel) panel.hidden = true;
       syncTrafficSelectors([], true);
       loadTrafficEdgesFromPlan(labName);
       pollLive();
@@ -558,5 +688,20 @@
     window.addEventListener('mouseup', () => {
       panDrag = null;
     });
+    $('liveConsoleReconnectBtn').addEventListener('click', () => {
+      if (!liveTerminal.node) {
+        setStatus('Click a node in the graph to open terminal', 'status-idle');
+        return;
+      }
+      startLiveTerminalSession(liveTerminal.node);
+    });
+    window.addEventListener('resize', () => {
+      if (!liveTerminal.fitAddon || !liveTerminal.xterm) return;
+      liveTerminal.fitAddon.fit();
+      if (liveTerminal.socket && liveTerminal.socket.readyState === WebSocket.OPEN) {
+        liveTerminal.socket.send(JSON.stringify({ type: 'resize', cols: liveTerminal.xterm.cols, rows: liveTerminal.xterm.rows }));
+      }
+    });
+    window.addEventListener('beforeunload', closeLiveTerminalSession);
   });
 })();

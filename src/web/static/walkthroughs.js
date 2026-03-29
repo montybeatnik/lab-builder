@@ -12,9 +12,22 @@
     plan: null,
     steps: [],
     stepIndex: 0,
+    deployedLabs: [],
     terminalSocket: null,
     xterm: null,
     fitAddon: null
+  };
+  const walkthroughLabByID = {
+    'evpn-vxlan-stretched-l2-foundation': 'walkthrough-evpn-vxlan-l2',
+    'evpn-vxlan-multihoming': 'walkthrough-evpn-multihoming',
+    'evpn-vxlan-routing': 'walkthrough-evpn-vxlan-l3'
+  };
+  const walkthroughIDByLab = Object.fromEntries(
+    Object.entries(walkthroughLabByID).map(([id, lab]) => [lab, id])
+  );
+  const storageKeys = {
+    selectedID: 'walkthrough:selectedID',
+    activeLab: 'walkthrough:activeLab'
   };
 
   function launchBtn() {
@@ -40,9 +53,21 @@
 
   function setSelected(id, name, status) {
     state.selectedID = id || '';
+    try {
+      if (state.selectedID) localStorage.setItem(storageKeys.selectedID, state.selectedID);
+      else localStorage.removeItem(storageKeys.selectedID);
+    } catch {}
     const input = $('walkthroughSelected');
     if (!input) return;
     input.value = state.selectedID ? `${name} (${status})` : '';
+  }
+
+  function setActiveLab(labName) {
+    state.activeLab = (labName || '').trim();
+    try {
+      if (state.activeLab) localStorage.setItem(storageKeys.activeLab, state.activeLab);
+      else localStorage.removeItem(storageKeys.activeLab);
+    } catch {}
   }
 
   function ensureTerminalVisible() {
@@ -507,6 +532,10 @@
     }
     body.innerHTML = '';
     let autoSelected = false;
+    let preferredID = '';
+    try {
+      preferredID = (localStorage.getItem(storageKeys.selectedID) || '').trim();
+    } catch {}
     data.items.forEach(item => {
       const row = document.createElement('tr');
       row.innerHTML = `
@@ -520,6 +549,7 @@
       btn.disabled = item.status !== 'ready';
       btn.addEventListener('click', () => {
         setSelected(item.id, item.name, item.status);
+        setActiveLab('');
         state.steps = stepsForWalkthrough(item.id);
         state.stepIndex = 0;
         renderStepper();
@@ -528,7 +558,7 @@
       });
       body.appendChild(row);
 
-      if (!autoSelected && !state.selectedID && item.status === 'ready') {
+      if (!autoSelected && item.status === 'ready' && (preferredID === item.id || (!preferredID && !state.selectedID))) {
         autoSelected = true;
         setSelected(item.id, item.name, item.status);
         state.steps = stepsForWalkthrough(item.id);
@@ -537,6 +567,17 @@
         runPreflight(item.id);
       }
     });
+    if (!autoSelected) {
+      // Fallback for cases where stored selection is unavailable/not ready.
+      const firstReady = data.items.find(i => i.status === 'ready');
+      if (firstReady) {
+        setSelected(firstReady.id, firstReady.name, firstReady.status);
+        state.steps = stepsForWalkthrough(firstReady.id);
+        state.stepIndex = 0;
+        renderStepper();
+        runPreflight(firstReady.id);
+      }
+    }
   }
 
   async function runPreflight(id) {
@@ -561,7 +602,28 @@
       setStatus('Preflight failed', 'status-fail');
       return;
     }
+    if (data.labName) {
+      setActiveLab(data.labName);
+    }
+    state.deployedLabs = Array.isArray(data.deployedLabs) ? data.deployedLabs.slice() : [];
     if (Array.isArray(data.deployedLabs) && data.deployedLabs.length > 0) {
+      const walkthroughLabs = data.deployedLabs.filter(name => /^walkthrough-/i.test(name));
+      if (walkthroughLabs.length > 0) {
+        const resumeLab = walkthroughLabs[0];
+        setActiveLab(resumeLab);
+        const resumeID = walkthroughIDByLab[resumeLab] || '';
+        if (resumeID) {
+          state.selectedID = resumeID;
+          try { localStorage.setItem(storageKeys.selectedID, resumeID); } catch {}
+          state.steps = stepsForWalkthrough(resumeID);
+          state.stepIndex = 0;
+          renderStepper();
+        }
+        await loadPlanAndRender();
+        $('walkthroughRunner').hidden = false;
+        setStatus(`Resumed deployed walkthrough lab: ${resumeLab}`, 'status-pass');
+        return;
+      }
       setStatus('Existing deployed lab detected', 'status-pending');
       return;
     }
@@ -612,13 +674,16 @@
     const walkthroughID = data.walkthroughId || state.selectedID;
     state.steps = stepsForWalkthrough(walkthroughID);
     state.stepIndex = 0;
-    state.activeLab = data.labName || '';
+    setActiveLab(data.labName || '');
     await loadPlanAndRender();
     $('walkthroughRunner').hidden = false;
   }
 
   async function loadPlanAndRender() {
-    if (!state.activeLab) return;
+    if (!state.activeLab) {
+      setStatus('No active walkthrough lab selected', 'status-idle');
+      return;
+    }
     const res = await fetch(`/labplan?name=${encodeURIComponent(state.activeLab)}`);
     const data = await res.json().catch(() => ({ ok: false }));
     if (!data.ok) {
@@ -951,7 +1016,17 @@
     $('walkthroughUseSudo').addEventListener('change', () => {
       if (state.selectedID) runPreflight(state.selectedID);
     });
-    $('walkthroughRefreshTopoBtn').addEventListener('click', loadPlanAndRender);
+    $('walkthroughRefreshTopoBtn').addEventListener('click', async () => {
+      if (state.activeLab) {
+        await loadPlanAndRender();
+        return;
+      }
+      if (state.selectedID) {
+        await runPreflight(state.selectedID);
+        return;
+      }
+      setStatus('Select a walkthrough first', 'status-idle');
+    });
     $('walkthroughPrevStepBtn').addEventListener('click', () => {
       state.stepIndex -= 1;
       renderStepper();
