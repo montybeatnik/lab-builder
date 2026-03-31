@@ -819,6 +819,35 @@ a.monitor-link {
   align-items: start;
 }
 
+.walkthrough-workarea {
+  display: grid;
+  grid-template-rows: minmax(360px, 62vh) 10px minmax(220px, 38vh);
+  min-height: 0;
+}
+
+.walkthrough-workarea.no-console {
+  grid-template-rows: minmax(420px, 1fr);
+}
+
+.walkthrough-workarea.no-console .walkthrough-pane-resizer {
+  display: none;
+}
+
+.walkthrough-workarea .graph-panel {
+  min-height: 0;
+}
+
+.walkthrough-pane-resizer {
+  cursor: row-resize;
+  background: linear-gradient(90deg, rgba(100, 116, 139, 0.15), rgba(34, 211, 238, 0.55), rgba(100, 116, 139, 0.15));
+  border-radius: 999px;
+  margin: 0.35rem 0;
+}
+
+.walkthrough-pane-resizer:hover {
+  filter: brightness(1.12);
+}
+
 .walkthrough-steps {
   margin: 0.4rem 0 0.9rem;
   padding-left: 1.45rem;
@@ -944,8 +973,9 @@ a.monitor-link {
 
 .walkthrough-terminal {
   margin-top: 0.8rem;
-  min-height: 260px;
-  max-height: 360px;
+  min-height: 220px;
+  height: min(48vh, 420px);
+  max-height: 65vh;
   overflow: auto;
   border-radius: var(--radius-sm);
   border: 1px solid #334155;
@@ -1251,6 +1281,9 @@ button:focus {
   .status-card { width: 100%; }
   .page-live .grid { grid-template-columns: 1fr; }
   #walkthroughRunner.grid { grid-template-columns: 1fr; }
+  .walkthrough-workarea {
+    grid-template-rows: minmax(300px, 52vh) 10px minmax(220px, 42vh);
+  }
   .walkthrough-guide-panel {
     min-height: 0;
     max-height: none;

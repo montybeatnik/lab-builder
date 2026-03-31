@@ -15,7 +15,10 @@
     deployedLabs: [],
     terminalSocket: null,
     xterm: null,
-    fitAddon: null
+    fitAddon: null,
+    resizingPanes: false,
+    guideWindow: null,
+    guideChannel: null
   };
   const walkthroughLabByID = {
     'evpn-vxlan-stretched-l2-foundation': 'walkthrough-evpn-vxlan-l2',
@@ -83,6 +86,251 @@
     const modal = $('walkthroughCaptureModal');
     if (!modal) return;
     modal.hidden = true;
+  }
+
+  function updateWorkareaLayout() {
+    const workarea = $('walkthroughWorkarea');
+    const consolePanel = $('walkthroughConsolePanel');
+    if (!workarea || !consolePanel) return;
+    if (consolePanel.hidden) {
+      workarea.classList.add('no-console');
+      return;
+    }
+    workarea.classList.remove('no-console');
+    if (!workarea.style.gridTemplateRows) {
+      workarea.style.gridTemplateRows = 'minmax(360px, 62vh) 10px minmax(220px, 38vh)';
+    }
+  }
+
+  function fitTerminal() {
+    if (!state.fitAddon || !state.xterm) return;
+    state.fitAddon.fit();
+    if (state.terminalSocket && state.terminalSocket.readyState === WebSocket.OPEN) {
+      state.terminalSocket.send(JSON.stringify({ type: 'resize', cols: state.xterm.cols, rows: state.xterm.rows }));
+    }
+  }
+
+  function initPaneResizer() {
+    const resizer = $('walkthroughPaneResizer');
+    const workarea = $('walkthroughWorkarea');
+    const consolePanel = $('walkthroughConsolePanel');
+    if (!resizer || !workarea || !consolePanel) return;
+
+    const onMove = (ev) => {
+      if (!state.resizingPanes || consolePanel.hidden) return;
+      const rect = workarea.getBoundingClientRect();
+      const handleH = resizer.getBoundingClientRect().height || 10;
+      const minTop = 260;
+      const minBottom = 180;
+      let top = ev.clientY - rect.top;
+      top = Math.max(minTop, top);
+      top = Math.min(rect.height - minBottom - handleH, top);
+      const bottom = Math.max(minBottom, rect.height - top - handleH);
+      workarea.style.gridTemplateRows = `${Math.round(top)}px ${Math.round(handleH)}px ${Math.round(bottom)}px`;
+      fitTerminal();
+    };
+
+    const stopResize = () => {
+      if (!state.resizingPanes) return;
+      state.resizingPanes = false;
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', stopResize);
+    };
+
+    resizer.addEventListener('pointerdown', (ev) => {
+      if (consolePanel.hidden) return;
+      state.resizingPanes = true;
+      document.body.style.userSelect = 'none';
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', stopResize);
+      ev.preventDefault();
+    });
+  }
+
+  function safeCloneGuideSteps() {
+    return (state.steps || []).map((step) => ({
+      title: step.title || '',
+      goal: step.goal || '',
+      commands: Array.isArray(step.commands) ? step.commands : [],
+      validate: step.validate || ''
+    }));
+  }
+
+  function guidePayload() {
+    return {
+      steps: safeCloneGuideSteps(),
+      stepIndex: state.stepIndex,
+      selectedID: state.selectedID || '',
+      activeLab: state.activeLab || ''
+    };
+  }
+
+  function ensureGuideChannel() {
+    if (!window.BroadcastChannel) return null;
+    if (state.guideChannel) return state.guideChannel;
+    const channel = new window.BroadcastChannel('walkthrough-guide');
+    channel.onmessage = (ev) => {
+      const msg = ev && ev.data ? ev.data : {};
+      if (msg.type === 'setStepIndex' && Number.isFinite(msg.stepIndex)) {
+        state.stepIndex = msg.stepIndex;
+        renderStepper();
+      }
+      if (msg.type === 'requestState') {
+        channel.postMessage({ type: 'state', payload: guidePayload() });
+      }
+    };
+    state.guideChannel = channel;
+    return channel;
+  }
+
+  function syncGuideWindow() {
+    const channel = ensureGuideChannel();
+    if (!channel) return;
+    channel.postMessage({ type: 'state', payload: guidePayload() });
+  }
+
+  function openGuideWindow() {
+    const popup = window.open('', 'walkthrough-guide', 'popup=yes,width=620,height=900,resizable=yes,scrollbars=yes');
+    if (!popup) {
+      setStatus('Popup blocked by browser', 'status-fail');
+      return;
+    }
+    const doc = popup.document;
+    doc.open();
+    doc.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Walkthrough Guide</title>
+  <style>
+    :root{color-scheme:dark}
+    body{margin:0;padding:14px;background:#020617;color:#e2e8f0;font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}
+    h1{font-size:20px;margin:0}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+    .muted{color:#94a3b8;font-size:12px}
+    .steps{margin:8px 0 0;padding-left:18px;max-height:170px;overflow:auto}
+    .steps li{cursor:pointer;margin:2px 0}
+    .steps li.active{color:#22d3ee;font-weight:700}
+    .card{margin-top:10px;border:1px solid #334155;background:#0b1227;border-radius:10px;padding:10px}
+    pre{margin:0;background:#020617;border:1px solid #334155;border-radius:8px;padding:8px;white-space:pre-wrap;word-break:break-word}
+    details{margin-top:8px}
+    summary{cursor:pointer;color:#93c5fd}
+    .actions{display:flex;gap:8px;margin-top:10px}
+    button{border:1px solid #334155;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:7px 10px;cursor:pointer}
+  </style>
+</head>
+<body>
+  <div class="row">
+    <h1>Step-by-Step Guide</h1>
+    <button id="closeBtn" type="button">Close</button>
+  </div>
+  <div id="meta" class="muted"></div>
+  <ol id="steps" class="steps"></ol>
+  <div class="actions">
+    <button id="prevBtn" type="button">Back</button>
+    <button id="nextBtn" type="button">Next</button>
+  </div>
+  <div class="card">
+    <div id="title"></div>
+    <div id="facts" class="muted"></div>
+    <div id="commands"></div>
+    <div id="validate" class="muted"></div>
+  </div>
+  <script>
+  (function(){
+    const channel = window.BroadcastChannel ? new BroadcastChannel('walkthrough-guide') : null;
+    const state = { steps: [], stepIndex: 0, selectedID: '', activeLab: '' };
+    function byId(id){ return document.getElementById(id); }
+    function clamp() {
+      if (!state.steps.length) { state.stepIndex = 0; return; }
+      if (state.stepIndex < 0) state.stepIndex = 0;
+      if (state.stepIndex > state.steps.length - 1) state.stepIndex = state.steps.length - 1;
+    }
+    function render() {
+      clamp();
+      const list = byId('steps');
+      const title = byId('title');
+      const facts = byId('facts');
+      const commands = byId('commands');
+      const validate = byId('validate');
+      byId('meta').textContent = (state.activeLab ? ('Lab: ' + state.activeLab + '  ') : '') + (state.selectedID ? ('Walkthrough: ' + state.selectedID) : '');
+      list.innerHTML = '';
+      state.steps.forEach((step, idx) => {
+        const li = document.createElement('li');
+        li.textContent = step.title || ('Step ' + (idx + 1));
+        if (idx === state.stepIndex) li.className = 'active';
+        li.addEventListener('click', () => {
+          state.stepIndex = idx;
+          render();
+          if (channel) channel.postMessage({ type: 'setStepIndex', stepIndex: state.stepIndex });
+        });
+        list.appendChild(li);
+      });
+      if (!state.steps.length) {
+        title.textContent = 'No steps loaded yet.';
+        facts.textContent = '';
+        commands.innerHTML = '';
+        validate.textContent = '';
+        return;
+      }
+      const step = state.steps[state.stepIndex];
+      title.textContent = step.title || '';
+      facts.textContent = step.goal || '';
+      commands.innerHTML = '';
+      (Array.isArray(step.commands) ? step.commands : []).forEach((cmd, idx) => {
+        const d = document.createElement('details');
+        d.open = idx === 0;
+        const s = document.createElement('summary');
+        const pre = document.createElement('pre');
+        if (typeof cmd === 'string') {
+          s.textContent = 'Shell';
+          pre.textContent = cmd;
+        } else {
+          s.textContent = (cmd.node || 'node') + (cmd.mode ? (' (' + cmd.mode + ')') : '');
+          const lines = Array.isArray(cmd.lines) ? cmd.lines : [];
+          pre.textContent = cmd.mode === 'vtysh' ? (['vtysh'].concat(lines).join('\\n')) : lines.join('\\n');
+        }
+        d.appendChild(s);
+        d.appendChild(pre);
+        commands.appendChild(d);
+      });
+      validate.textContent = step.validate ? ('Validation: ' + step.validate) : '';
+    }
+    byId('prevBtn').addEventListener('click', () => {
+      state.stepIndex -= 1;
+      render();
+      if (channel) channel.postMessage({ type: 'setStepIndex', stepIndex: state.stepIndex });
+    });
+    byId('nextBtn').addEventListener('click', () => {
+      state.stepIndex += 1;
+      render();
+      if (channel) channel.postMessage({ type: 'setStepIndex', stepIndex: state.stepIndex });
+    });
+    byId('closeBtn').addEventListener('click', () => window.close());
+    if (channel) {
+      channel.onmessage = (ev) => {
+        const msg = ev && ev.data ? ev.data : {};
+        if (msg.type === 'state' && msg.payload) {
+          state.steps = Array.isArray(msg.payload.steps) ? msg.payload.steps : [];
+          state.stepIndex = Number.isFinite(msg.payload.stepIndex) ? msg.payload.stepIndex : 0;
+          state.selectedID = msg.payload.selectedID || '';
+          state.activeLab = msg.payload.activeLab || '';
+          render();
+        }
+      };
+      channel.postMessage({ type: 'requestState' });
+    }
+    render();
+  })();
+  </script>
+</body>
+</html>`);
+    doc.close();
+    state.guideWindow = popup;
+    ensureGuideChannel();
+    syncGuideWindow();
   }
 
   function ensureTerminalVisible() {
@@ -1021,6 +1269,7 @@
     });
 
     detailValidation.textContent = `Validation: ${step.validate}`;
+    syncGuideWindow();
   }
 
   function spreadX(count, width, margin) {
@@ -1103,6 +1352,7 @@
   async function selectNode(name) {
     state.activeNode = name;
     $('walkthroughConsolePanel').hidden = false;
+    updateWorkareaLayout();
     $('walkthroughConsoleNode').textContent = `Selected node: ${name}`;
     ensureTerminalVisible();
     await startTerminalSession();
@@ -1272,6 +1522,9 @@
   document.addEventListener('DOMContentLoaded', () => {
     if (!$('walkthroughRows')) return;
     hideCaptureModal();
+    updateWorkareaLayout();
+    initPaneResizer();
+    ensureGuideChannel();
     loadCatalog();
     $('walkthroughLaunchBtn').addEventListener('click', () => launch(false));
     $('walkthroughUseSudo').addEventListener('change', () => {
@@ -1298,16 +1551,13 @@
     });
     $('walkthroughConsoleReconnectBtn').addEventListener('click', startTerminalSession);
     $('walkthroughCaptureBtn').addEventListener('click', runCapture);
+    $('walkthroughPopoutGuideBtn').addEventListener('click', openGuideWindow);
     $('walkthroughCaptureCloseBtn').addEventListener('click', hideCaptureModal);
     $('walkthroughCaptureModal').addEventListener('click', (ev) => {
       if (ev.target && ev.target.id === 'walkthroughCaptureModal') hideCaptureModal();
     });
     window.addEventListener('resize', () => {
-      if (!state.fitAddon || !state.xterm) return;
-      state.fitAddon.fit();
-      if (state.terminalSocket && state.terminalSocket.readyState === WebSocket.OPEN) {
-        state.terminalSocket.send(JSON.stringify({ type: 'resize', cols: state.xterm.cols, rows: state.xterm.rows }));
-      }
+      fitTerminal();
     });
     window.addEventListener('beforeunload', closeTerminalSession);
   });
