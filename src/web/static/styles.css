@@ -834,12 +834,12 @@ a.monitor-link {
 
 .walkthrough-guide-popout-mode #walkthroughWorkarea {
   min-height: clamp(640px, calc(100vh - 190px), 1200px);
-  grid-template-rows: minmax(360px, 1.2fr) 10px minmax(240px, 1fr);
+  grid-template-rows: minmax(360px, 1.2fr) 10px minmax(300px, 1fr);
 }
 
 .walkthrough-workarea {
   display: grid;
-  grid-template-rows: minmax(360px, 62vh) 10px minmax(220px, 38vh);
+  grid-template-rows: minmax(360px, 62vh) 10px minmax(300px, 38vh);
   min-height: 0;
 }
 
@@ -857,13 +857,13 @@ a.monitor-link {
 
 #walkthroughWorkarea > .panel {
   min-height: 0;
-  overflow: hidden;
 }
 
 #walkthroughTopologyPanel {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 #walkthroughTopologyPanel .graph-wrap {
@@ -875,6 +875,7 @@ a.monitor-link {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: auto;
 }
 
 .walkthrough-pane-resizer {
@@ -1013,7 +1014,7 @@ a.monitor-link {
 
 .walkthrough-terminal {
   margin-top: 0.8rem;
-  min-height: 120px;
+  min-height: 180px;
   height: auto;
   max-height: none;
   flex: 1 1 auto;
