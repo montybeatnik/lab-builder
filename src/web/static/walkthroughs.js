@@ -18,7 +18,8 @@
     fitAddon: null,
     resizingPanes: false,
     guideWindow: null,
-    guideChannel: null
+    guideChannel: null,
+    guidePoppedOut: false
   };
   const walkthroughLabByID = {
     'evpn-vxlan-stretched-l2-foundation': 'walkthrough-evpn-vxlan-l2',
@@ -110,6 +111,16 @@
     }
   }
 
+  function setGuideDockMode(poppedOut) {
+    state.guidePoppedOut = Boolean(poppedOut);
+    const runner = $('walkthroughRunner');
+    const guidePanel = $('walkthroughGuidePanel');
+    const popBtn = $('walkthroughPopoutGuideBtn');
+    if (runner) runner.classList.toggle('guide-popped-out', state.guidePoppedOut);
+    if (guidePanel) guidePanel.hidden = state.guidePoppedOut;
+    if (popBtn) popBtn.textContent = state.guidePoppedOut ? 'Focus Guide Window' : 'Pop Out Guide';
+  }
+
   function initPaneResizer() {
     const resizer = $('walkthroughPaneResizer');
     const workarea = $('walkthroughWorkarea');
@@ -176,6 +187,10 @@
         state.stepIndex = msg.stepIndex;
         renderStepper();
       }
+      if (msg.type === 'closed') {
+        state.guideWindow = null;
+        setGuideDockMode(false);
+      }
       if (msg.type === 'requestState') {
         channel.postMessage({ type: 'state', payload: guidePayload() });
       }
@@ -190,7 +205,20 @@
     channel.postMessage({ type: 'state', payload: guidePayload() });
   }
 
+  function reconcileGuideWindowState() {
+    if (!state.guidePoppedOut) return;
+    if (state.guideWindow && !state.guideWindow.closed) return;
+    state.guideWindow = null;
+    setGuideDockMode(false);
+  }
+
   function openGuideWindow() {
+    if (state.guideWindow && !state.guideWindow.closed) {
+      setGuideDockMode(true);
+      state.guideWindow.focus();
+      syncGuideWindow();
+      return;
+    }
     const popup = window.open('', 'walkthrough-guide', 'popup=yes,width=620,height=900,resizable=yes,scrollbars=yes');
     if (!popup) {
       setStatus('Popup blocked by browser', 'status-fail');
@@ -309,6 +337,9 @@
       if (channel) channel.postMessage({ type: 'setStepIndex', stepIndex: state.stepIndex });
     });
     byId('closeBtn').addEventListener('click', () => window.close());
+    window.addEventListener('beforeunload', () => {
+      if (channel) channel.postMessage({ type: 'closed' });
+    });
     if (channel) {
       channel.onmessage = (ev) => {
         const msg = ev && ev.data ? ev.data : {};
@@ -329,6 +360,7 @@
 </html>`);
     doc.close();
     state.guideWindow = popup;
+    setGuideDockMode(true);
     ensureGuideChannel();
     syncGuideWindow();
   }
@@ -1522,6 +1554,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     if (!$('walkthroughRows')) return;
     hideCaptureModal();
+    setGuideDockMode(false);
     updateWorkareaLayout();
     initPaneResizer();
     ensureGuideChannel();
@@ -1559,6 +1592,8 @@
     window.addEventListener('resize', () => {
       fitTerminal();
     });
+    window.addEventListener('focus', reconcileGuideWindowState);
+    document.addEventListener('visibilitychange', reconcileGuideWindowState);
     window.addEventListener('beforeunload', closeTerminalSession);
   });
 })();

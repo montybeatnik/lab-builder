@@ -819,6 +819,10 @@ a.monitor-link {
   align-items: start;
 }
 
+#walkthroughRunner.grid.guide-popped-out {
+  grid-template-columns: 1fr;
+}
+
 .walkthrough-workarea {
   display: grid;
   grid-template-rows: minmax(360px, 62vh) 10px minmax(220px, 38vh);
