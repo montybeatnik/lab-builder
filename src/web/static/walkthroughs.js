@@ -119,7 +119,7 @@
     document.body.classList.toggle('walkthrough-guide-popout-mode', state.guidePoppedOut);
     if (runner) runner.classList.toggle('guide-popped-out', state.guidePoppedOut);
     if (guidePanel) guidePanel.hidden = state.guidePoppedOut;
-    if (popBtn) popBtn.textContent = state.guidePoppedOut ? 'Focus Guide Window' : 'Pop Out Guide';
+    if (popBtn) popBtn.textContent = state.guidePoppedOut ? 'Focus Guide Window' : 'Open Guide';
     updateWorkareaLayout();
     fitTerminal();
   }
@@ -1222,28 +1222,31 @@
     const detailFacts = $('walkthroughStepFacts');
     const detailCommands = $('walkthroughStepCommands');
     const detailValidation = $('walkthroughStepValidation');
-    if (!list || !detail || !detailHeader || !detailFacts || !detailCommands || !detailValidation) return;
+
     if (!state.steps.length) {
-      list.innerHTML = '<li class="muted">No steps loaded yet.</li>';
-      detailHeader.textContent = '';
-      detailFacts.textContent = '';
-      detailCommands.innerHTML = '';
-      detailValidation.textContent = '';
+      if (list) list.innerHTML = '<li class="muted">No steps loaded yet.</li>';
+      if (detailHeader) detailHeader.textContent = '';
+      if (detailFacts) detailFacts.textContent = '';
+      if (detailCommands) detailCommands.innerHTML = '';
+      if (detailValidation) detailValidation.textContent = '';
+      syncGuideWindow();
       return;
     }
     if (state.stepIndex < 0) state.stepIndex = 0;
     if (state.stepIndex >= state.steps.length) state.stepIndex = state.steps.length - 1;
-    list.innerHTML = '';
-    state.steps.forEach((s, idx) => {
-      const li = document.createElement('li');
-      li.className = `walkthrough-step${idx === state.stepIndex ? ' active' : ''}`;
-      li.textContent = s.title;
-      li.addEventListener('click', () => {
-        state.stepIndex = idx;
-        renderStepper();
+    if (list) {
+      list.innerHTML = '';
+      state.steps.forEach((s, idx) => {
+        const li = document.createElement('li');
+        li.className = `walkthrough-step${idx === state.stepIndex ? ' active' : ''}`;
+        li.textContent = s.title;
+        li.addEventListener('click', () => {
+          state.stepIndex = idx;
+          renderStepper();
+        });
+        list.appendChild(li);
       });
-      list.appendChild(li);
-    });
+    }
     const step = state.steps[state.stepIndex];
     const nodeFacts = (state.plan?.nodes || []).map(n => `${n.name}(asn=${n.asn},loopback=${n.loopback || '-'})`);
     const leafLoopbacks = (state.plan?.nodes || [])
@@ -1264,6 +1267,11 @@
     if (nodeFacts.length) {
       factLines.push(`• Node facts: ${nodeFacts.join(', ')}`);
     }
+    if (!detail || !detailHeader || !detailFacts || !detailCommands || !detailValidation) {
+      syncGuideWindow();
+      return;
+    }
+
     detailHeader.textContent = `Step ${state.stepIndex + 1}: ${step.title}`;
     detailFacts.textContent = factLines.join('\n');
     detailCommands.innerHTML = '';
@@ -1582,17 +1590,24 @@
       }
       setStatus('Select a walkthrough first', 'status-idle');
     });
-    $('walkthroughPrevStepBtn').addEventListener('click', () => {
-      state.stepIndex -= 1;
-      renderStepper();
-    });
-    $('walkthroughNextStepBtn').addEventListener('click', () => {
-      state.stepIndex += 1;
-      renderStepper();
-    });
+    const prevBtn = $('walkthroughPrevStepBtn');
+    if (prevBtn) {
+      prevBtn.addEventListener('click', () => {
+        state.stepIndex -= 1;
+        renderStepper();
+      });
+    }
+    const nextBtn = $('walkthroughNextStepBtn');
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => {
+        state.stepIndex += 1;
+        renderStepper();
+      });
+    }
     $('walkthroughConsoleReconnectBtn').addEventListener('click', startTerminalSession);
     $('walkthroughCaptureBtn').addEventListener('click', runCapture);
-    $('walkthroughPopoutGuideBtn').addEventListener('click', openGuideWindow);
+    const popoutBtn = $('walkthroughPopoutGuideBtn');
+    if (popoutBtn) popoutBtn.addEventListener('click', openGuideWindow);
     $('walkthroughCaptureCloseBtn').addEventListener('click', hideCaptureModal);
     $('walkthroughCaptureModal').addEventListener('click', (ev) => {
       if (ev.target && ev.target.id === 'walkthroughCaptureModal') hideCaptureModal();

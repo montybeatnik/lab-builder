@@ -66,7 +66,10 @@
     <div id="walkthroughTopologyPanel" class="panel graph-panel">
       <div class="graph-header">
         <h2>Walkthrough Topology</h2>
-        <button id="walkthroughRefreshTopoBtn" class="ghost" type="button">Refresh</button>
+        <div class="validate-actions">
+          <button id="walkthroughPopoutGuideBtn" class="ghost" type="button">Open Guide</button>
+          <button id="walkthroughRefreshTopoBtn" class="ghost" type="button">Refresh</button>
+        </div>
       </div>
       <div class="graph-wrap future-wrap">
         <svg id="walkthroughGraph" class="future-mode" viewBox="0 0 1000 520" role="img" aria-label="Walkthrough topology"></svg>
@@ -85,23 +88,6 @@
         <button id="walkthroughConsoleReconnectBtn" class="ghost" type="button">Reconnect</button>
         <button id="walkthroughCaptureBtn" class="ghost" type="button">Capture Traffic</button>
       </div>
-    </div>
-  </div>
-  <div id="walkthroughGuidePanel" class="panel walkthrough-guide-panel">
-    <div class="validate-header">
-      <h2>Step-by-Step Guide</h2>
-      <button id="walkthroughPopoutGuideBtn" class="ghost" type="button">Pop Out Guide</button>
-    </div>
-    <ol id="walkthroughSteps" class="walkthrough-steps"></ol>
-    <div class="validate-actions">
-      <button id="walkthroughPrevStepBtn" class="ghost" type="button">Back</button>
-      <button id="walkthroughNextStepBtn" type="button">Next</button>
-    </div>
-    <div id="walkthroughStepDetail" class="walkthrough-step-detail">
-      <div id="walkthroughStepHeader" class="walkthrough-step-header"></div>
-      <div id="walkthroughStepFacts" class="walkthrough-step-facts muted"></div>
-      <div id="walkthroughStepCommands" class="walkthrough-step-commands"></div>
-      <div id="walkthroughStepValidation" class="walkthrough-step-validation"></div>
     </div>
   </div>
 </section>

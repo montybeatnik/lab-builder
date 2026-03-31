@@ -815,7 +815,7 @@ a.monitor-link {
 }
 
 #walkthroughRunner.grid {
-  grid-template-columns: minmax(680px, 1.45fr) minmax(520px, 1fr);
+  grid-template-columns: 1fr;
   align-items: start;
 }
 
