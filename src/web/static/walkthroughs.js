@@ -116,9 +116,12 @@
     const runner = $('walkthroughRunner');
     const guidePanel = $('walkthroughGuidePanel');
     const popBtn = $('walkthroughPopoutGuideBtn');
+    document.body.classList.toggle('walkthrough-guide-popout-mode', state.guidePoppedOut);
     if (runner) runner.classList.toggle('guide-popped-out', state.guidePoppedOut);
     if (guidePanel) guidePanel.hidden = state.guidePoppedOut;
     if (popBtn) popBtn.textContent = state.guidePoppedOut ? 'Focus Guide Window' : 'Pop Out Guide';
+    updateWorkareaLayout();
+    fitTerminal();
   }
 
   function initPaneResizer() {
@@ -234,9 +237,10 @@
   <title>Walkthrough Guide</title>
   <style>
     :root{color-scheme:dark}
-    body{margin:0;padding:14px;background:#020617;color:#e2e8f0;font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh;box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;padding:14px;background:#020617;color:#e2e8f0;font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;box-sizing:border-box}
     *,*:before,*:after{box-sizing:inherit}
-    .layout{height:calc(100vh - 28px);display:grid;grid-template-rows:auto auto minmax(120px,1fr) auto minmax(220px,2fr);gap:10px;min-height:0}
+    .layout{height:100%;display:grid;grid-template-rows:auto auto minmax(120px,1fr) auto minmax(220px,2fr);gap:10px;min-height:0}
     h1{font-size:20px;margin:0}
     .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
     .muted{color:#94a3b8;font-size:12px}

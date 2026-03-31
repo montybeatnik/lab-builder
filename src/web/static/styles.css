@@ -823,6 +823,15 @@ a.monitor-link {
   grid-template-columns: 1fr;
 }
 
+.walkthrough-guide-popout-mode #walkthroughRunner.grid.guide-popped-out {
+  align-items: stretch;
+}
+
+.walkthrough-guide-popout-mode #walkthroughWorkarea {
+  min-height: clamp(640px, calc(100vh - 190px), 1200px);
+  grid-template-rows: minmax(360px, 1.2fr) 10px minmax(240px, 1fr);
+}
+
 .walkthrough-workarea {
   display: grid;
   grid-template-rows: minmax(360px, 62vh) 10px minmax(220px, 38vh);
