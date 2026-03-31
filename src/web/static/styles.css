@@ -834,12 +834,12 @@ a.monitor-link {
 
 .walkthrough-guide-popout-mode #walkthroughWorkarea {
   min-height: clamp(640px, calc(100vh - 190px), 1200px);
-  grid-template-rows: minmax(360px, 1.2fr) 10px minmax(300px, 1fr);
+  grid-template-rows: minmax(340px, 1fr) 14px minmax(360px, 1fr);
 }
 
 .walkthrough-workarea {
   display: grid;
-  grid-template-rows: minmax(360px, 62vh) 10px minmax(300px, 38vh);
+  grid-template-rows: minmax(340px, 55vh) 14px minmax(360px, 45vh);
   min-height: 0;
 }
 
@@ -882,7 +882,7 @@ a.monitor-link {
   cursor: row-resize;
   background: linear-gradient(90deg, rgba(100, 116, 139, 0.15), rgba(34, 211, 238, 0.55), rgba(100, 116, 139, 0.15));
   border-radius: 999px;
-  margin: 0.35rem 0;
+  margin: 0.3rem 0;
 }
 
 .walkthrough-pane-resizer:hover {
@@ -1014,11 +1014,12 @@ a.monitor-link {
 
 .walkthrough-terminal {
   margin-top: 0.8rem;
-  min-height: 180px;
-  height: auto;
+  min-height: 240px;
+  height: 320px;
   max-height: none;
   flex: 1 1 auto;
   overflow: auto;
+  resize: vertical;
   border-radius: var(--radius-sm);
   border: 1px solid #334155;
   background: #050b19;

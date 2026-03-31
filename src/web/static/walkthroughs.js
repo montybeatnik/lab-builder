@@ -16,6 +16,7 @@
     terminalSocket: null,
     xterm: null,
     fitAddon: null,
+    terminalResizeObserver: null,
     resizingPanes: false,
     guideWindow: null,
     guideChannel: null,
@@ -1455,6 +1456,16 @@
     host.innerHTML = '';
     state.xterm.open(host);
     if (state.fitAddon) state.fitAddon.fit();
+    if (state.terminalResizeObserver) {
+      try { state.terminalResizeObserver.disconnect(); } catch {}
+      state.terminalResizeObserver = null;
+    }
+    if (typeof window.ResizeObserver === 'function') {
+      state.terminalResizeObserver = new window.ResizeObserver(() => {
+        fitTerminal();
+      });
+      state.terminalResizeObserver.observe(host);
+    }
     host.addEventListener('click', () => {
       if (state.xterm) state.xterm.focus();
       ensureTerminalVisible();
@@ -1534,6 +1545,10 @@
   }
 
   async function closeTerminalSession() {
+    if (state.terminalResizeObserver) {
+      try { state.terminalResizeObserver.disconnect(); } catch {}
+      state.terminalResizeObserver = null;
+    }
     if (state.terminalSocket) {
       try {
         state.terminalSocket.send(JSON.stringify({ type: 'close' }));
