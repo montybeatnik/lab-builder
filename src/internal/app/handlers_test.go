@@ -687,6 +687,30 @@ func TestWalkthroughPreflight_L3RoutingReady(t *testing.T) {
 	}
 }
 
+func TestWalkthroughPreflight_SRV6Ready(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	body := `{"walkthroughId":"srv6-foundation","sudo":false}`
+	req := httptest.NewRequest(http.MethodPost, "/walkthroughs/preflight", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.WalkthroughPreflight(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	var resp WalkthroughPreflightResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected preflight ok=true, got %#v", resp)
+	}
+	if resp.WalkthroughID != "srv6-foundation" {
+		t.Fatalf("unexpected walkthrough id %q", resp.WalkthroughID)
+	}
+	if resp.LabName != "walkthrough-srv6-foundation" {
+		t.Fatalf("unexpected lab name %q", resp.LabName)
+	}
+}
+
 func TestWalkthroughLaunch_RequiresConfirmWhenOtherLabRunning(t *testing.T) {
 	base := t.TempDir()
 	otherDir := filepath.Join(base, "other-lab")

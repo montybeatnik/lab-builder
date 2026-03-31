@@ -97,6 +97,17 @@
   <div id="walkthroughTerminalScreen" class="walkthrough-terminal"></div>
   <div class="validate-actions">
     <button id="walkthroughConsoleReconnectBtn" class="ghost" type="button">Reconnect</button>
+    <button id="walkthroughCaptureBtn" class="ghost" type="button">Capture Traffic</button>
   </div>
 </section>
+
+<div id="walkthroughCaptureModal" class="capture-modal" hidden>
+  <div class="capture-modal-card">
+    <div class="validate-header">
+      <h2>Live Capture Output</h2>
+      <button id="walkthroughCaptureCloseBtn" class="ghost" type="button">Cancel</button>
+    </div>
+    <pre id="walkthroughCaptureOutput" class="result-block capture-output"></pre>
+  </div>
+</div>
 {{ end }}
