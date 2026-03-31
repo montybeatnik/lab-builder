@@ -113,6 +113,34 @@ var walkthroughProfiles = []walkthroughProfile{
 			Monitoring: MonitoringConfig{SNMP: false, GNMI: false},
 		},
 	},
+	{
+		Item: WalkthroughCatalogItem{
+			ID:          "srv6-foundation",
+			Name:        "SRv6 Service Programming (Foundation)",
+			Description: "Learn why SRv6 is useful for policy steering/service chaining, then configure and validate a 3-node fabric with 2 edge hosts and explicit edge-to-edge path steering.",
+			DurationMin: 45,
+			Status:      "ready",
+		},
+		Request: TopologyRequest{
+			Topology:  "full-mesh",
+			NodeType:  "frr",
+			NodeCount: 3,
+			EdgeNodes: 2,
+			InfraCIDR: "10.10.0.0/24",
+			EdgeCIDR:  "172.31.0.0/24",
+			EdgeLinks: []EdgeLinkInput{
+				{Edge: "edge1", Target: "node1"},
+				{Edge: "edge2", Target: "node3"},
+			},
+			Protocols: labplanner.ProtocolSet{
+				Global: []string{"bgp", "isis"},
+				Roles:  map[string][]string{},
+			},
+			LabName:    "walkthrough-srv6-foundation",
+			Force:      true,
+			Monitoring: MonitoringConfig{SNMP: false, GNMI: false},
+		},
+	},
 }
 
 var runContainerlabLifecycleFn = runContainerlabLifecycle

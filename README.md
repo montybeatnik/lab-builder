@@ -235,6 +235,16 @@ Contributions are welcome. The goal is to keep changes small, testable, and easy
   ```bash
   make vm_rebuild
   ```
+- If SRv6 walkthrough packets hit endpoint `eth*` but no ICMP reply is seen:
+  - Keep SID endpoints (for example `2001:db8:100:3::100`) as `local ... encap seg6local` routes, not loopback interface addresses.
+  - Ensure `seg6_enabled` is on globally and on ingress interfaces (for example `eth1/eth2`).
+  - Quick checks:
+    ```bash
+    ip -6 route show table local | grep seg6local
+    sysctl net.ipv6.conf.all.seg6_enabled
+    sysctl net.ipv6.conf.eth1.seg6_enabled
+    sysctl net.ipv6.conf.eth2.seg6_enabled
+    ```
 - If you only have FRR images, that's fine. cEOS image import is optional in `setup-multipass.sh`.
 - If you want a fresh VM:
   ```bash

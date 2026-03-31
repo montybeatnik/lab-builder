@@ -958,6 +958,38 @@ a.monitor-link {
   white-space: pre-wrap;
 }
 
+.capture-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  background: rgba(2, 6, 23, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.capture-modal[hidden] {
+  display: none !important;
+}
+
+.capture-modal-card {
+  width: min(980px, 96vw);
+  max-height: 88vh;
+  overflow: auto;
+  border: 1px solid #334155;
+  border-radius: var(--radius-md);
+  background: rgba(15, 25, 51, 0.96);
+  box-shadow: var(--shadow);
+  padding: 1rem;
+}
+
+.capture-output {
+  margin-top: 0.6rem;
+  min-height: 320px;
+  max-height: 62vh;
+}
+
 .page-live .grid {
   grid-template-columns: minmax(900px, 2.4fr) minmax(300px, 1fr);
 }

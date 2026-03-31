@@ -20,7 +20,8 @@
   const walkthroughLabByID = {
     'evpn-vxlan-stretched-l2-foundation': 'walkthrough-evpn-vxlan-l2',
     'evpn-vxlan-multihoming': 'walkthrough-evpn-multihoming',
-    'evpn-vxlan-routing': 'walkthrough-evpn-vxlan-l3'
+    'evpn-vxlan-routing': 'walkthrough-evpn-vxlan-l3',
+    'srv6-foundation': 'walkthrough-srv6-foundation'
   };
   const walkthroughIDByLab = Object.fromEntries(
     Object.entries(walkthroughLabByID).map(([id, lab]) => [lab, id])
@@ -68,6 +69,20 @@
       if (state.activeLab) localStorage.setItem(storageKeys.activeLab, state.activeLab);
       else localStorage.removeItem(storageKeys.activeLab);
     } catch {}
+  }
+
+  function showCaptureModal(text) {
+    const modal = $('walkthroughCaptureModal');
+    const out = $('walkthroughCaptureOutput');
+    if (!modal || !out) return;
+    out.textContent = text || '';
+    modal.hidden = false;
+  }
+
+  function hideCaptureModal() {
+    const modal = $('walkthroughCaptureModal');
+    if (!modal) return;
+    modal.hidden = true;
   }
 
   function ensureTerminalVisible() {
@@ -462,6 +477,223 @@
             }
           ],
           validate: 'Ping should succeed and EVPN type-5 routes should be visible on leaves.'
+        }
+      ];
+    }
+    if (id === 'srv6-foundation') {
+      return [
+        {
+          title: 'Why SRv6 In This Design',
+          goal: 'Understand SRv6 as an IPv6-native way to steer edge-to-edge traffic through explicit service paths without a separate MPLS data plane.',
+          commands: [
+            'Design synopsis:',
+            '- Use SRv6 to encode service intent in packet headers.',
+            '- Avoid per-flow state in transit nodes by pushing segment lists at the edge.',
+            '- Keep operations IPv6-native with standard Linux tooling from edge hosts to fabric nodes.'
+          ],
+          validate: 'You can explain where SRv6 policy is applied (ingress), where SIDs are consumed (transit/egress), and why this simplifies service steering.'
+        },
+        {
+          title: 'Baseline Node/Link Checks',
+          goal: 'Confirm all fabric and edge nodes are up and discover interface mapping.',
+          commands: [
+            {
+              node: 'node1 / node2 / node3 / edge1 / edge2',
+              mode: 'shell',
+              lines: [
+                'ip -br link',
+                'ip -6 addr show'
+              ]
+            }
+          ],
+          validate: 'Identify links: node1-eth1<->node2-eth1, node1-eth2<->node3-eth1, node2-eth2<->node3-eth2, edge1-eth1<->node1-eth3, edge2-eth1<->node3-eth3.'
+        },
+        {
+          title: 'Build IPv6 Transport + Edge Access',
+          goal: 'Create IPv6 underlay connectivity, add SRv6 locator loopbacks, and provision IPv6 access links for edge hosts.',
+          commands: [
+            {
+              node: 'node1',
+              mode: 'shell',
+              lines: [
+                'sysctl -w net.ipv6.conf.all.forwarding=1',
+                'sysctl -w net.ipv6.conf.default.seg6_enabled=1',
+                'sysctl -w net.ipv6.conf.all.seg6_enabled=1',
+                'sysctl -w net.ipv6.conf.eth1.seg6_enabled=1',
+                'sysctl -w net.ipv6.conf.eth2.seg6_enabled=1',
+                'ip -6 addr add 2001:db8:12::1/64 dev eth1',
+                'ip -6 addr add 2001:db8:13::1/64 dev eth2',
+                'ip -6 addr add 2001:db8:1e1::1/64 dev eth3',
+                'ip -6 addr add 2001:db8:100:1::1/128 dev lo'
+              ]
+            },
+            {
+              node: 'node2',
+              mode: 'shell',
+              lines: [
+                'sysctl -w net.ipv6.conf.all.forwarding=1',
+                'sysctl -w net.ipv6.conf.default.seg6_enabled=1',
+                'sysctl -w net.ipv6.conf.all.seg6_enabled=1',
+                'sysctl -w net.ipv6.conf.eth1.seg6_enabled=1',
+                'sysctl -w net.ipv6.conf.eth2.seg6_enabled=1',
+                'ip -6 addr add 2001:db8:12::2/64 dev eth1',
+                'ip -6 addr add 2001:db8:23::2/64 dev eth2',
+                'ip -6 addr add 2001:db8:100:2::1/128 dev lo',
+                'ip -6 addr del 2001:db8:100:2::100/128 dev lo 2>/dev/null || true'
+              ]
+            },
+            {
+              node: 'node3',
+              mode: 'shell',
+              lines: [
+                'sysctl -w net.ipv6.conf.all.forwarding=1',
+                'sysctl -w net.ipv6.conf.default.seg6_enabled=1',
+                'sysctl -w net.ipv6.conf.all.seg6_enabled=1',
+                'sysctl -w net.ipv6.conf.eth1.seg6_enabled=1',
+                'sysctl -w net.ipv6.conf.eth2.seg6_enabled=1',
+                'ip -6 addr add 2001:db8:13::3/64 dev eth1',
+                'ip -6 addr add 2001:db8:23::3/64 dev eth2',
+                'ip -6 addr add 2001:db8:3e2::1/64 dev eth3',
+                'ip -6 addr add 2001:db8:100:3::1/128 dev lo',
+                'ip -6 addr del 2001:db8:100:3::100/128 dev lo 2>/dev/null || true'
+              ]
+            },
+            {
+              node: 'edge1',
+              mode: 'shell',
+              lines: [
+                'ip -6 addr add 2001:db8:1e1::2/64 dev eth1',
+                'ip -6 route replace default via 2001:db8:1e1::1 dev eth1'
+              ]
+            },
+            {
+              node: 'edge2',
+              mode: 'shell',
+              lines: [
+                'ip -6 addr add 2001:db8:3e2::2/64 dev eth1',
+                'ip -6 route replace default via 2001:db8:3e2::1 dev eth1'
+              ]
+            }
+          ],
+          validate: 'Verify each fabric node has transport IPv6 addresses plus locator /128, and each edge has IPv6 + default route.'
+        },
+        {
+          title: 'Add Static IPv6 Reachability',
+          goal: 'Install static routes for locator and edge-access prefixes before SR policy steering.',
+          commands: [
+            {
+              node: 'node1',
+              mode: 'shell',
+              lines: [
+                'ip -6 route replace 2001:db8:100:2::1/128 via 2001:db8:12::2 dev eth1',
+                'ip -6 route replace 2001:db8:100:2::100/128 via 2001:db8:12::2 dev eth1',
+                'ip -6 route replace 2001:db8:100:3::1/128 via 2001:db8:13::3 dev eth2',
+                'ip -6 route replace 2001:db8:100:3::100/128 via 2001:db8:13::3 dev eth2',
+                'ip -6 route replace 2001:db8:3e2::/64 via 2001:db8:13::3 dev eth2',
+                'ping -6 -c 2 2001:db8:12::2'
+              ]
+            },
+            {
+              node: 'node2',
+              mode: 'shell',
+              lines: [
+                'ip -6 route replace 2001:db8:100:1::1/128 via 2001:db8:12::1 dev eth1',
+                'ip -6 route replace 2001:db8:100:3::1/128 via 2001:db8:23::3 dev eth2',
+                'ip -6 route replace 2001:db8:100:3::100/128 via 2001:db8:23::3 dev eth2',
+                'ip -6 route replace 2001:db8:3e2::/64 via 2001:db8:23::3 dev eth2',
+                'ip -6 route replace local 2001:db8:100:2::100/128 encap seg6local action End.X nh6 2001:db8:23::3 dev eth2'
+              ]
+            },
+            {
+              node: 'node3',
+              mode: 'shell',
+              lines: [
+                'ip -6 route replace 2001:db8:100:1::1/128 via 2001:db8:13::1 dev eth1',
+                'ip -6 route replace 2001:db8:100:2::1/128 via 2001:db8:23::2 dev eth2',
+                'ip -6 route replace 2001:db8:100:2::100/128 via 2001:db8:23::2 dev eth2',
+                'ip -6 route replace 2001:db8:1e1::/64 via 2001:db8:13::1 dev eth1',
+                'ip -6 route replace local 2001:db8:100:3::100/128 encap seg6local action End.DX6 nh6 2001:db8:3e2::2 dev eth3'
+              ]
+            },
+            {
+              node: 'edge1',
+              mode: 'shell',
+              lines: [
+                'ping -6 -c 3 2001:db8:3e2::2'
+              ]
+            }
+          ],
+          validate: 'Baseline edge-to-edge ping should work before SRv6 steering. Keep SID addresses (`::100`) as route-only locals, not loopback interface addresses.'
+        },
+        {
+          title: 'Program SRv6 Policy At Ingress',
+          goal: 'Steer edge1->edge2 traffic at node1 through node2 and then into node3.',
+          commands: [
+            {
+              node: 'node1',
+              mode: 'shell',
+              lines: [
+                'ip -6 route replace 2001:db8:3e2::/64 encap seg6 mode encap segs 2001:db8:100:2::100,2001:db8:100:3::100 via 2001:db8:12::2 dev eth1'
+              ]
+            }
+          ],
+          validate: 'Check `ip -6 -d route show 2001:db8:3e2::/64` and confirm `encap seg6` segment list is present.'
+        },
+        {
+          title: 'Operational Verification',
+          goal: 'Confirm SRv6 route programming and forwarding state on ingress/transit/endpoint nodes.',
+          commands: [
+            {
+              node: 'node1',
+              mode: 'shell',
+              lines: [
+                'ip -6 route show 2001:db8:3e2::/64',
+                'ip -6 -d route show'
+              ]
+            },
+            {
+              node: 'node2 / node3',
+              mode: 'shell',
+              lines: [
+                'ip -6 route show',
+                'ip -6 neigh show',
+                'sysctl net.ipv6.conf.all.forwarding',
+                'sysctl net.ipv6.conf.all.seg6_enabled',
+                'sysctl net.ipv6.conf.eth1.seg6_enabled',
+                'sysctl net.ipv6.conf.eth2.seg6_enabled',
+                'ip -6 route show table local | grep seg6local || true'
+              ]
+            },
+            {
+              node: 'edge1 / edge2',
+              mode: 'shell',
+              lines: [
+                'ip -6 route show'
+              ]
+            }
+          ],
+          validate: 'Ingress shows SRv6 encapsulation route; transit/egress show healthy IPv6 adjacency/forwarding state.'
+        },
+        {
+          title: 'Data Plane Test + Capture',
+          goal: 'Generate traffic and validate forwarding path with packet capture evidence.',
+          commands: [
+            {
+              node: 'edge1',
+              mode: 'shell',
+              lines: [
+                'ping -6 -c 5 2001:db8:3e2::2'
+              ]
+            },
+            {
+              node: 'node2',
+              mode: 'shell',
+              lines: [
+                'tcpdump -nn -i any -c 30 ip6'
+              ]
+            }
+          ],
+          validate: 'Ping succeeds and capture output confirms IPv6 packets traversing the expected transit node.'
         }
       ];
     }
@@ -1009,8 +1241,37 @@
     }
   }
 
+  async function runCapture() {
+    if (!state.activeLab || !state.activeNode) {
+      setStatus('Select a node first for capture', 'status-idle');
+      return;
+    }
+    setStatus(`Capturing traffic on ${state.activeNode}...`, 'status-pending');
+    const payload = {
+      labName: state.activeLab,
+      nodeName: state.activeNode,
+      command: "if ! command -v tcpdump >/dev/null 2>&1; then if command -v apt-get >/dev/null 2>&1; then apt-get update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y tcpdump >/dev/null 2>&1; elif command -v apk >/dev/null 2>&1; then apk add --no-cache tcpdump >/dev/null 2>&1; fi; fi; if command -v tcpdump >/dev/null 2>&1; then timeout 12 tcpdump -nn -i any -c 40 '(ip or ip6)' 2>&1; else echo 'tcpdump not available on this node'; fi",
+      sudo: $('walkthroughUseSudo').value === 'true',
+      timeoutSec: 30
+    };
+    const res = await fetch('/walkthroughs/terminal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
+    if (!data.ok) {
+      setStatus('Capture failed', 'status-fail');
+      showCaptureModal(`Capture failed:\n${data.error || 'unknown error'}\n\n${data.output || ''}`);
+      return;
+    }
+    setStatus(`Capture complete on ${state.activeNode}`, 'status-pass');
+    showCaptureModal(data.output || '(no capture output)');
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     if (!$('walkthroughRows')) return;
+    hideCaptureModal();
     loadCatalog();
     $('walkthroughLaunchBtn').addEventListener('click', () => launch(false));
     $('walkthroughUseSudo').addEventListener('change', () => {
@@ -1036,6 +1297,11 @@
       renderStepper();
     });
     $('walkthroughConsoleReconnectBtn').addEventListener('click', startTerminalSession);
+    $('walkthroughCaptureBtn').addEventListener('click', runCapture);
+    $('walkthroughCaptureCloseBtn').addEventListener('click', hideCaptureModal);
+    $('walkthroughCaptureModal').addEventListener('click', (ev) => {
+      if (ev.target && ev.target.id === 'walkthroughCaptureModal') hideCaptureModal();
+    });
     window.addEventListener('resize', () => {
       if (!state.fitAddon || !state.xterm) return;
       state.fitAddon.fit();
