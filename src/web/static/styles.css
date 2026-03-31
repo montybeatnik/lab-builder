@@ -810,7 +810,8 @@ a.monitor-link {
 
 #walkthroughGraph {
   width: 100%;
-  height: 520px;
+  height: 100%;
+  min-height: 0;
   display: block;
 }
 
@@ -851,6 +852,28 @@ a.monitor-link {
 }
 
 .walkthrough-workarea .graph-panel {
+  min-height: 0;
+}
+
+#walkthroughWorkarea > .panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+#walkthroughTopologyPanel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#walkthroughTopologyPanel .graph-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#walkthroughConsolePanel {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 }
 
@@ -990,9 +1013,10 @@ a.monitor-link {
 
 .walkthrough-terminal {
   margin-top: 0.8rem;
-  min-height: 220px;
-  height: min(48vh, 420px);
-  max-height: 65vh;
+  min-height: 120px;
+  height: auto;
+  max-height: none;
+  flex: 1 1 auto;
   overflow: auto;
   border-radius: var(--radius-sm);
   border: 1px solid #334155;
