@@ -118,6 +118,10 @@
     const consolePanel = $('walkthroughConsolePanel');
     const terminalHost = $('walkthroughTerminalScreen');
     if (!workarea || !resizer || !consolePanel || consolePanel.hidden) return;
+    // Only sync outer pane size when the user has manually edge-resized the
+    // terminal (browser writes an inline px height during resize interaction).
+    const explicitTerminalHeight = terminalHost && terminalHost.style && terminalHost.style.height;
+    if (!explicitTerminalHeight || !/px$/i.test(explicitTerminalHeight)) return;
     const rect = workarea.getBoundingClientRect();
     if (rect.height < 200) return;
     const handleH = Math.max(10, Math.round(resizer.getBoundingClientRect().height || 14));
