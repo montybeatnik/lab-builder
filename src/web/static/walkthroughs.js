@@ -116,13 +116,17 @@
     const workarea = $('walkthroughWorkarea');
     const resizer = $('walkthroughPaneResizer');
     const consolePanel = $('walkthroughConsolePanel');
+    const terminalHost = $('walkthroughTerminalScreen');
     if (!workarea || !resizer || !consolePanel || consolePanel.hidden) return;
     const rect = workarea.getBoundingClientRect();
     if (rect.height < 200) return;
     const handleH = Math.max(10, Math.round(resizer.getBoundingClientRect().height || 14));
     const minTop = 260;
     const minBottom = 320;
-    const desiredBottom = Math.max(minBottom, consolePanel.scrollHeight + 8);
+    const panelRect = consolePanel.getBoundingClientRect();
+    const terminalRect = terminalHost ? terminalHost.getBoundingClientRect() : { height: 0 };
+    const chromeHeight = Math.max(120, Math.round(panelRect.height - terminalRect.height));
+    const desiredBottom = Math.max(minBottom, Math.round(terminalRect.height + chromeHeight + 8));
     const maxBottom = Math.max(minBottom, rect.height - minTop - handleH);
     const bottom = Math.min(desiredBottom, maxBottom);
     const top = Math.max(minTop, rect.height - handleH - bottom);
@@ -1423,7 +1427,6 @@
     state.activeNode = name;
     $('walkthroughConsolePanel').hidden = false;
     updateWorkareaLayout();
-    syncConsoleRowToContent();
     $('walkthroughConsoleNode').textContent = `Selected node: ${name}`;
     ensureTerminalVisible();
     await startTerminalSession();
