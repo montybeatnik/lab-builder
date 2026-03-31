@@ -234,37 +234,41 @@
   <title>Walkthrough Guide</title>
   <style>
     :root{color-scheme:dark}
-    body{margin:0;padding:14px;background:#020617;color:#e2e8f0;font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}
+    body{margin:0;padding:14px;background:#020617;color:#e2e8f0;font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh;box-sizing:border-box}
+    *,*:before,*:after{box-sizing:inherit}
+    .layout{height:calc(100vh - 28px);display:grid;grid-template-rows:auto auto minmax(120px,1fr) auto minmax(220px,2fr);gap:10px;min-height:0}
     h1{font-size:20px;margin:0}
-    .row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
     .muted{color:#94a3b8;font-size:12px}
-    .steps{margin:8px 0 0;padding-left:18px;max-height:170px;overflow:auto}
+    .steps{margin:0;padding-left:18px;overflow:auto;min-height:0}
     .steps li{cursor:pointer;margin:2px 0}
     .steps li.active{color:#22d3ee;font-weight:700}
-    .card{margin-top:10px;border:1px solid #334155;background:#0b1227;border-radius:10px;padding:10px}
+    .card{border:1px solid #334155;background:#0b1227;border-radius:10px;padding:10px;overflow:auto;min-height:0}
     pre{margin:0;background:#020617;border:1px solid #334155;border-radius:8px;padding:8px;white-space:pre-wrap;word-break:break-word}
     details{margin-top:8px}
     summary{cursor:pointer;color:#93c5fd}
-    .actions{display:flex;gap:8px;margin-top:10px}
+    .actions{display:flex;gap:8px}
     button{border:1px solid #334155;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:7px 10px;cursor:pointer}
   </style>
 </head>
 <body>
-  <div class="row">
-    <h1>Step-by-Step Guide</h1>
-    <button id="closeBtn" type="button">Close</button>
-  </div>
-  <div id="meta" class="muted"></div>
-  <ol id="steps" class="steps"></ol>
-  <div class="actions">
-    <button id="prevBtn" type="button">Back</button>
-    <button id="nextBtn" type="button">Next</button>
-  </div>
-  <div class="card">
-    <div id="title"></div>
-    <div id="facts" class="muted"></div>
-    <div id="commands"></div>
-    <div id="validate" class="muted"></div>
+  <div class="layout">
+    <div class="row">
+      <h1>Step-by-Step Guide</h1>
+      <button id="closeBtn" type="button">Close</button>
+    </div>
+    <div id="meta" class="muted"></div>
+    <ol id="steps" class="steps"></ol>
+    <div class="actions">
+      <button id="prevBtn" type="button">Back</button>
+      <button id="nextBtn" type="button">Next</button>
+    </div>
+    <div class="card">
+      <div id="title"></div>
+      <div id="facts" class="muted"></div>
+      <div id="commands"></div>
+      <div id="validate" class="muted"></div>
+    </div>
   </div>
   <script>
   (function(){
