@@ -100,7 +100,7 @@
     }
     workarea.classList.remove('no-console');
     if (!workarea.style.gridTemplateRows) {
-      workarea.style.gridTemplateRows = 'minmax(360px, 62vh) 10px minmax(220px, 38vh)';
+      workarea.style.gridTemplateRows = 'minmax(340px, 55vh) 14px minmax(360px, 45vh)';
     }
   }
 
@@ -110,6 +110,23 @@
     if (state.terminalSocket && state.terminalSocket.readyState === WebSocket.OPEN) {
       state.terminalSocket.send(JSON.stringify({ type: 'resize', cols: state.xterm.cols, rows: state.xterm.rows }));
     }
+  }
+
+  function syncConsoleRowToContent() {
+    const workarea = $('walkthroughWorkarea');
+    const resizer = $('walkthroughPaneResizer');
+    const consolePanel = $('walkthroughConsolePanel');
+    if (!workarea || !resizer || !consolePanel || consolePanel.hidden) return;
+    const rect = workarea.getBoundingClientRect();
+    if (rect.height < 200) return;
+    const handleH = Math.max(10, Math.round(resizer.getBoundingClientRect().height || 14));
+    const minTop = 260;
+    const minBottom = 320;
+    const desiredBottom = Math.max(minBottom, consolePanel.scrollHeight + 8);
+    const maxBottom = Math.max(minBottom, rect.height - minTop - handleH);
+    const bottom = Math.min(desiredBottom, maxBottom);
+    const top = Math.max(minTop, rect.height - handleH - bottom);
+    workarea.style.gridTemplateRows = `${Math.round(top)}px ${handleH}px ${Math.round(bottom)}px`;
   }
 
   function setGuideDockMode(poppedOut) {
@@ -1406,6 +1423,7 @@
     state.activeNode = name;
     $('walkthroughConsolePanel').hidden = false;
     updateWorkareaLayout();
+    syncConsoleRowToContent();
     $('walkthroughConsoleNode').textContent = `Selected node: ${name}`;
     ensureTerminalVisible();
     await startTerminalSession();
@@ -1462,6 +1480,7 @@
     }
     if (typeof window.ResizeObserver === 'function') {
       state.terminalResizeObserver = new window.ResizeObserver(() => {
+        syncConsoleRowToContent();
         fitTerminal();
       });
       state.terminalResizeObserver.observe(host);
@@ -1591,6 +1610,7 @@
     hideCaptureModal();
     setGuideDockMode(false);
     updateWorkareaLayout();
+    syncConsoleRowToContent();
     initPaneResizer();
     ensureGuideChannel();
     loadCatalog();
@@ -1632,6 +1652,7 @@
       if (ev.target && ev.target.id === 'walkthroughCaptureModal') hideCaptureModal();
     });
     window.addEventListener('resize', () => {
+      syncConsoleRowToContent();
       fitTerminal();
     });
     window.addEventListener('focus', reconcileGuideWindowState);
