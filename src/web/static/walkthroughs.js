@@ -118,7 +118,11 @@
     const popBtn = $('walkthroughPopoutGuideBtn');
     document.body.classList.toggle('walkthrough-guide-popout-mode', state.guidePoppedOut);
     if (runner) runner.classList.toggle('guide-popped-out', state.guidePoppedOut);
-    if (guidePanel) guidePanel.hidden = state.guidePoppedOut;
+    if (guidePanel) {
+      guidePanel.hidden = state.guidePoppedOut;
+      guidePanel.setAttribute('aria-hidden', state.guidePoppedOut ? 'true' : 'false');
+      guidePanel.style.display = state.guidePoppedOut ? 'none' : '';
+    }
     if (popBtn) popBtn.textContent = state.guidePoppedOut ? 'Focus Guide Window' : 'Open Guide';
     updateWorkareaLayout();
     fitTerminal();

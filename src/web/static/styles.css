@@ -823,6 +823,10 @@ a.monitor-link {
   grid-template-columns: 1fr;
 }
 
+#walkthroughRunner.grid.guide-popped-out #walkthroughGuidePanel {
+  display: none !important;
+}
+
 .walkthrough-guide-popout-mode #walkthroughRunner.grid.guide-popped-out {
   align-items: stretch;
 }
