@@ -257,6 +257,7 @@
       setStatus('Popup blocked by browser', 'status-fail');
       return;
     }
+    const popupPayload = encodeURIComponent(JSON.stringify(guidePayload()));
     const doc = popup.document;
     doc.open();
     doc.write(`<!doctype html>
@@ -391,6 +392,16 @@
       };
       channel.postMessage({ type: 'requestState' });
     }
+    try {
+      const payloadEncoded = '${popupPayload}';
+      if (payloadEncoded) {
+        const payload = JSON.parse(decodeURIComponent(payloadEncoded));
+        state.steps = Array.isArray(payload.steps) ? payload.steps : [];
+        state.stepIndex = Number.isFinite(payload.stepIndex) ? payload.stepIndex : 0;
+        state.selectedID = payload.selectedID || '';
+        state.activeLab = payload.activeLab || '';
+      }
+    } catch {}
     render();
   })();
   </script>
