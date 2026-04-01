@@ -192,10 +192,29 @@
     });
   }
 
+  function normalizeRFCRefs(list) {
+    const refs = Array.isArray(list) ? list : [];
+    return refs.map((ref) => {
+      if (typeof ref === 'string') {
+        return { label: ref, href: '' };
+      }
+      if (!ref || typeof ref !== 'object') {
+        return { label: '', href: '' };
+      }
+      return {
+        label: String(ref.label || ''),
+        href: String(ref.href || '')
+      };
+    }).filter((ref) => ref.label);
+  }
+
   function safeCloneGuideSteps() {
     return (state.steps || []).map((step) => ({
       title: step.title || '',
       goal: step.goal || '',
+      why: step.why || '',
+      notes: Array.isArray(step.notes) ? step.notes.slice() : [],
+      rfcs: normalizeRFCRefs(step.rfcs),
       commands: Array.isArray(step.commands) ? step.commands : [],
       validate: step.validate || ''
     }));
@@ -344,7 +363,54 @@
       }
       const step = state.steps[state.stepIndex];
       title.textContent = step.title || '';
-      facts.textContent = step.goal || '';
+      facts.innerHTML = '';
+      const factLines = [];
+      if (step.goal) factLines.push('Goal: ' + step.goal);
+      if (step.why) factLines.push('Why: ' + step.why);
+      if (factLines.length) {
+        const preface = document.createElement('div');
+        preface.textContent = factLines.join('\n');
+        facts.appendChild(preface);
+      }
+      if (Array.isArray(step.notes) && step.notes.length) {
+        const notesHdr = document.createElement('div');
+        notesHdr.textContent = 'Notes:';
+        notesHdr.style.marginTop = '6px';
+        facts.appendChild(notesHdr);
+        const notesList = document.createElement('ul');
+        notesList.style.margin = '4px 0 0 18px';
+        step.notes.forEach((note) => {
+          const li = document.createElement('li');
+          li.textContent = String(note);
+          notesList.appendChild(li);
+        });
+        facts.appendChild(notesList);
+      }
+      if (Array.isArray(step.rfcs) && step.rfcs.length) {
+        const rfcHdr = document.createElement('div');
+        rfcHdr.textContent = 'RFC references:';
+        rfcHdr.style.marginTop = '6px';
+        facts.appendChild(rfcHdr);
+        const rfcList = document.createElement('ul');
+        rfcList.style.margin = '4px 0 0 18px';
+        step.rfcs.forEach((ref) => {
+          const li = document.createElement('li');
+          const label = ref && ref.label ? String(ref.label) : '';
+          const href = ref && ref.href ? String(ref.href) : '';
+          if (href) {
+            const a = document.createElement('a');
+            a.href = href;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = label || href;
+            li.appendChild(a);
+          } else {
+            li.textContent = label;
+          }
+          rfcList.appendChild(li);
+        });
+        facts.appendChild(rfcList);
+      }
       commands.innerHTML = '';
       (Array.isArray(step.commands) ? step.commands : []).forEach((cmd, idx) => {
         const d = document.createElement('details');
@@ -439,6 +505,12 @@
         {
           title: 'Verify Underlay BGP',
           goal: 'Confirm ipv4 unicast BGP adjacencies are established between spine and leaves.',
+          why: 'A healthy underlay is required before EVPN/VXLAN can provide stable control-plane and data-plane behavior.',
+          rfcs: [
+            { label: 'RFC 7348 (VXLAN), section 4', href: 'https://datatracker.ietf.org/doc/html/rfc7348#section-4' },
+            { label: 'RFC 7432 (EVPN), section 7', href: 'https://datatracker.ietf.org/doc/html/rfc7432#section-7' },
+            { label: 'RFC 8365 (EVPN NVO), section 5', href: 'https://datatracker.ietf.org/doc/html/rfc8365#section-5' }
+          ],
           commands: [
             {
               node: 'spine1',
@@ -542,6 +614,11 @@
         {
           title: 'Verify Topology And Underlay',
           goal: 'Confirm 1 spine / 3 leaves are up with ipv4 unicast BGP Established.',
+          why: 'EVPN multihoming behavior depends on deterministic underlay reachability and stable EVPN control-plane adjacencies.',
+          rfcs: [
+            { label: 'RFC 7432 (EVPN), section 8', href: 'https://datatracker.ietf.org/doc/html/rfc7432#section-8' },
+            { label: 'RFC 8584 (DF election), section 4', href: 'https://datatracker.ietf.org/doc/html/rfc8584#section-4' }
+          ],
           commands: [
             {
               node: 'spine1',
@@ -658,6 +735,12 @@
         {
           title: 'Verify Underlay Reachability',
           goal: 'Confirm spine/leaf ipv4 unicast BGP is established before enabling EVPN overlay.',
+          why: 'L3 EVPN IRB/type-5 forwarding requires a working underlay first; otherwise prefixes may be advertised but not forwarded correctly.',
+          rfcs: [
+            { label: 'RFC 7432 (EVPN), section 7', href: 'https://datatracker.ietf.org/doc/html/rfc7432#section-7' },
+            { label: 'RFC 9135 (IRB in EVPN), section 4', href: 'https://datatracker.ietf.org/doc/html/rfc9135#section-4' },
+            { label: 'RFC 9136 (IP prefix routes), section 3', href: 'https://datatracker.ietf.org/doc/html/rfc9136#section-3' }
+          ],
           commands: [
             {
               node: 'spine1',
@@ -814,12 +897,19 @@
         {
           title: 'Why SRv6 In This Design',
           goal: 'Understand SRv6 as an IPv6-native way to steer edge-to-edge traffic through explicit service paths without a separate MPLS data plane.',
-          commands: [
-            'Design synopsis:',
-            '- Use SRv6 to encode service intent in packet headers.',
-            '- Avoid per-flow state in transit nodes by pushing segment lists at the edge.',
-            '- Keep operations IPv6-native with standard Linux tooling from edge hosts to fabric nodes.'
+          why: 'SRv6 lets ingress nodes encode the desired path and service intent in SRH so transit forwarding remains simple and stateless.',
+          rfcs: [
+            { label: 'RFC 8402 (Segment Routing Architecture), section 2', href: 'https://datatracker.ietf.org/doc/html/rfc8402#section-2' },
+            { label: 'RFC 8754 (SRH), section 2', href: 'https://datatracker.ietf.org/doc/html/rfc8754#section-2' },
+            { label: 'RFC 8986 (SRv6 Network Programming), section 4', href: 'https://datatracker.ietf.org/doc/html/rfc8986#section-4' },
+            { label: 'RFC 9252 (SR Policy), section 2', href: 'https://datatracker.ietf.org/doc/html/rfc9252#section-2' }
           ],
+          notes: [
+            'Use SRv6 segment lists to encode service intent at ingress.',
+            'Avoid per-flow state in transit nodes by relying on SRH semantics.',
+            'Operate with IPv6-native tooling across edge and fabric nodes.'
+          ],
+          commands: [],
           validate: 'You can explain where SRv6 policy is applied (ingress), where SIDs are consumed (transit/egress), and why this simplifies service steering.'
         },
         {
@@ -1052,10 +1142,11 @@
       {
         title: 'Apply Scenario Config',
         goal: 'Apply the intended walkthrough config to fabric and edge nodes in small increments.',
-        commands: [
+        notes: [
           'Apply config in the node terminal based on walkthrough objective.',
-          'Commit/Save config where needed.'
+          'Commit/save config where needed.'
         ],
+        commands: [],
         validate: 'No command errors and expected control-plane state appears.'
       },
       {
@@ -1296,7 +1387,9 @@
     const spineLoopbacks = (state.plan?.nodes || [])
       .filter(n => n.role === 'spine' && n.loopback)
       .map(n => `${n.name}=${n.loopback}`);
-    const factLines = [`Goal: ${step.goal}`];
+    const factLines = [];
+    if (step.goal) factLines.push(`Goal: ${step.goal}`);
+    if (step.why) factLines.push(`Why: ${step.why}`);
     if (leafLoopbacks.length) {
       factLines.push('• Leaf loopbacks:');
       leafLoopbacks.forEach(v => factLines.push(`- ${v}`));
@@ -1314,7 +1407,51 @@
     }
 
     detailHeader.textContent = `Step ${state.stepIndex + 1}: ${step.title}`;
-    detailFacts.textContent = factLines.join('\n');
+    detailFacts.innerHTML = '';
+    if (factLines.length) {
+      const preface = document.createElement('div');
+      preface.textContent = factLines.join('\n');
+      detailFacts.appendChild(preface);
+    }
+    if (Array.isArray(step.notes) && step.notes.length) {
+      const notesHdr = document.createElement('div');
+      notesHdr.textContent = 'Notes:';
+      notesHdr.style.marginTop = '6px';
+      detailFacts.appendChild(notesHdr);
+      const notesList = document.createElement('ul');
+      notesList.style.margin = '4px 0 0 18px';
+      step.notes.forEach((note) => {
+        const li = document.createElement('li');
+        li.textContent = String(note);
+        notesList.appendChild(li);
+      });
+      detailFacts.appendChild(notesList);
+    }
+    if (Array.isArray(step.rfcs) && step.rfcs.length) {
+      const rfcHdr = document.createElement('div');
+      rfcHdr.textContent = 'RFC references:';
+      rfcHdr.style.marginTop = '6px';
+      detailFacts.appendChild(rfcHdr);
+      const rfcList = document.createElement('ul');
+      rfcList.style.margin = '4px 0 0 18px';
+      step.rfcs.forEach((ref) => {
+        const li = document.createElement('li');
+        const label = ref && ref.label ? String(ref.label) : '';
+        const href = ref && ref.href ? String(ref.href) : '';
+        if (href) {
+          const a = document.createElement('a');
+          a.href = href;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.textContent = label || href;
+          li.appendChild(a);
+        } else {
+          li.textContent = label;
+        }
+        rfcList.appendChild(li);
+      });
+      detailFacts.appendChild(rfcList);
+    }
     detailCommands.innerHTML = '';
     const commandList = step.commands || [];
     const shellCommands = commandList.filter(cmd => typeof cmd === 'string');
