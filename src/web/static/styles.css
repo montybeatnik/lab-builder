@@ -293,15 +293,51 @@ button:hover {
 
 button.ghost {
   background: rgba(15, 23, 42, 0.4);
-  border: 1px dashed #475569;
+  border: 1px solid #5b6b82;
   color: #cbd5e1;
   box-shadow: none;
 }
 
 button.ghost:hover {
   background: rgba(30, 41, 59, 0.72);
-  border-color: #64748b;
+  border-color: #8da0bc;
   box-shadow: none;
+}
+
+.node-type-help {
+  grid-column: 1 / -1;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-md);
+  background: rgba(8, 16, 35, 0.66);
+  padding: 0.8rem;
+}
+
+.node-type-help-title {
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.node-type-help-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.node-type-help-actions input[type="file"] {
+  max-width: 360px;
+}
+
+.status-pass-text {
+  color: #86efac;
+}
+
+.status-fail-text {
+  color: #fda4af;
+}
+
+.status-pending-text {
+  color: #93c5fd;
 }
 
 .graph-panel { display: flex; flex-direction: column; gap: 1rem; }

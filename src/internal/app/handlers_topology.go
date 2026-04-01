@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -21,6 +24,108 @@ import (
 // without needing a real containerlab binary on the test host.
 var execCommandContext = exec.CommandContext
 
+const requiredAristaImage = "ceosimage:4.34.2.1f"
+
+func (h *Handlers) TopologyAristaImageStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	present, err := aristaImagePresent(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusOK, AristaImageStatusResponse{
+			OK:            false,
+			Error:         err.Error(),
+			Present:       false,
+			RequiredImage: requiredAristaImage,
+			ArchivePath:   h.aristaImageArchivePath(""),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, AristaImageStatusResponse{
+		OK:            true,
+		Present:       present,
+		RequiredImage: requiredAristaImage,
+		ArchivePath:   h.aristaImageArchivePath(""),
+	})
+}
+
+func (h *Handlers) TopologyAristaImageUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		writeJSON(w, http.StatusBadRequest, AristaImageUploadResponse{
+			OK:            false,
+			Error:         "invalid multipart form: " + err.Error(),
+			RequiredImage: requiredAristaImage,
+		})
+		return
+	}
+	file, hdr, err := r.FormFile("image")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, AristaImageUploadResponse{
+			OK:            false,
+			Error:         "image upload is required (form field: image)",
+			RequiredImage: requiredAristaImage,
+		})
+		return
+	}
+	defer file.Close()
+
+	archivePath, err := h.saveAristaArchive(hdr.Filename, file)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, AristaImageUploadResponse{
+			OK:            false,
+			Error:         err.Error(),
+			RequiredImage: requiredAristaImage,
+		})
+		return
+	}
+
+	out, err := dockerImageLoad(r.Context(), archivePath)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, AristaImageUploadResponse{
+			OK:            false,
+			Error:         err.Error(),
+			RequiredImage: requiredAristaImage,
+			ArchivePath:   archivePath,
+			Output:        strings.TrimSpace(string(out)),
+		})
+		return
+	}
+
+	present, checkErr := aristaImagePresent(r.Context())
+	if checkErr != nil {
+		writeJSON(w, http.StatusBadRequest, AristaImageUploadResponse{
+			OK:            false,
+			Error:         checkErr.Error(),
+			RequiredImage: requiredAristaImage,
+			ArchivePath:   archivePath,
+			Output:        strings.TrimSpace(string(out)),
+		})
+		return
+	}
+	if !present {
+		writeJSON(w, http.StatusBadRequest, AristaImageUploadResponse{
+			OK:            false,
+			Error:         "image loaded, but required tag not present; retag archive to " + requiredAristaImage,
+			RequiredImage: requiredAristaImage,
+			ArchivePath:   archivePath,
+			Output:        strings.TrimSpace(string(out)),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, AristaImageUploadResponse{
+		OK:            true,
+		RequiredImage: requiredAristaImage,
+		ArchivePath:   archivePath,
+		Output:        strings.TrimSpace(string(out)),
+	})
+}
+
 func (h *Handlers) TopologyValidate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -36,6 +141,14 @@ func (h *Handlers) TopologyValidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	model, errs, warns := BuildTopologyModel(req)
+	if nodeTypeIsArista(req.NodeType) {
+		present, err := aristaImagePresent(r.Context())
+		if err != nil {
+			errs = append(errs, "could not verify Arista image "+requiredAristaImage+": "+err.Error())
+		} else if !present {
+			errs = append(errs, "Arista image "+requiredAristaImage+" not found; upload it first or switch node type to FRR")
+		}
+	}
 	addr, addrChecks, addrErrs, addrWarns := validateAddressing(req, model)
 	errs = append(errs, addrErrs...)
 	warns = append(warns, addrWarns...)
@@ -76,6 +189,14 @@ func (h *Handlers) TopologyBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	model, errs, warns := BuildTopologyModel(req)
+	if nodeTypeIsArista(req.NodeType) {
+		present, err := aristaImagePresent(r.Context())
+		if err != nil {
+			errs = append(errs, "could not verify Arista image "+requiredAristaImage+": "+err.Error())
+		} else if !present {
+			errs = append(errs, "Arista image "+requiredAristaImage+" not found; upload it first or switch node type to FRR")
+		}
+	}
 	_, _, addrErrs, addrWarns := validateAddressing(req, model)
 	errs = append(errs, addrErrs...)
 	warns = append(warns, addrWarns...)
@@ -623,13 +744,68 @@ func BuildTopologyModel(req TopologyRequest) (labplanner.TopologyModel, []string
 
 func normalizeNodeType(nodeType string) string {
 	switch strings.ToLower(strings.TrimSpace(nodeType)) {
-	case "", "arista":
-		return "arista"
-	case "frr":
+	case "", "frr":
 		return "frr"
+	case "arista":
+		return "arista"
 	default:
 		return "invalid"
 	}
+}
+
+func nodeTypeIsArista(nodeType string) bool {
+	return normalizeNodeType(nodeType) == "arista"
+}
+
+func aristaImagePresent(ctx context.Context) (bool, error) {
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := execCommandContext(checkCtx, "docker", "image", "inspect", requiredAristaImage)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		if os.IsNotExist(err) || strings.Contains(strings.ToLower(err.Error()), "executable file not found") {
+			return false, fmt.Errorf("docker command not found")
+		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			_ = out
+			return false, nil
+		}
+		return false, fmt.Errorf("docker image inspect failed: %w", err)
+	}
+	return true, nil
+}
+
+func dockerImageLoad(ctx context.Context, archivePath string) ([]byte, error) {
+	loadCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	cmd := execCommandContext(loadCtx, "docker", "image", "load", "-i", archivePath)
+	return cmd.CombinedOutput()
+}
+
+func (h *Handlers) aristaImageArchivePath(origName string) string {
+	base := "ceosimage.tar"
+	trimmed := strings.TrimSpace(origName)
+	if trimmed != "" {
+		base = filepath.Base(trimmed)
+	}
+	return filepath.Join(h.cfg.BaseDir, ".images", base)
+}
+
+func (h *Handlers) saveAristaArchive(filename string, body io.Reader) (string, error) {
+	dir := filepath.Join(h.cfg.BaseDir, ".images")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create image archive dir failed: %w", err)
+	}
+	path := h.aristaImageArchivePath(filename)
+	f, err := os.Create(path)
+	if err != nil {
+		return "", fmt.Errorf("create image archive failed: %w", err)
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, body); err != nil {
+		return "", fmt.Errorf("write image archive failed: %w", err)
+	}
+	return path, nil
 }
 
 func topologyChecks(model labplanner.TopologyModel, errs, warns []string) []Check {

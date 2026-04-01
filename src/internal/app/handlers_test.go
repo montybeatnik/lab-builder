@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -429,6 +431,100 @@ func TestTopologyDelete_DestroysAndRemovesLabArtifacts(t *testing.T) {
 		if l.Name == "demo" {
 			t.Fatalf("expected lab index record removed, still found %#v", l)
 		}
+	}
+}
+
+func TestTopologyAristaImageStatus_MethodNotAllowed(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/topology/arista-image/status", nil)
+	rec := httptest.NewRecorder()
+	h.TopologyAristaImageStatus(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected %d got %d", http.StatusMethodNotAllowed, rec.Code)
+	}
+}
+
+func TestTopologyAristaImageStatus_Present(t *testing.T) {
+	origExec := execCommandContext
+	execCommandContext = func(ctx context.Context, command string, args ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "exit 0")
+	}
+	defer func() { execCommandContext = origExec }()
+
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/topology/arista-image/status", nil)
+	rec := httptest.NewRecorder()
+	h.TopologyAristaImageStatus(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	var resp AristaImageStatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.OK || !resp.Present {
+		t.Fatalf("expected image present response, got %#v", resp)
+	}
+}
+
+func TestTopologyAristaImageUpload_MissingFile(t *testing.T) {
+	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/topology/arista-image/upload", strings.NewReader("x"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=foo")
+	rec := httptest.NewRecorder()
+	h.TopologyAristaImageUpload(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+}
+
+func TestTopologyAristaImageUpload_SavesArchiveAndLoadsImage(t *testing.T) {
+	base := t.TempDir()
+	origExec := execCommandContext
+	calls := 0
+	execCommandContext = func(ctx context.Context, command string, args ...string) *exec.Cmd {
+		calls++
+		switch calls {
+		case 1:
+			// docker image load -i ...
+			return exec.CommandContext(ctx, "sh", "-c", "printf 'Loaded image: ceosimage:4.34.2.1f'")
+		default:
+			// docker image inspect ...
+			return exec.CommandContext(ctx, "sh", "-c", "exit 0")
+		}
+	}
+	defer func() { execCommandContext = origExec }()
+
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	part, err := w.CreateFormFile("image", "ceos-lab.tar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("dummy image content")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewHandlers(Config{BaseDir: base}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/topology/arista-image/upload", &body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	h.TopologyAristaImageUpload(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	var resp AristaImageUploadResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected OK response, got %#v", resp)
+	}
+	if _, err := os.Stat(filepath.Join(base, ".images", "ceos-lab.tar")); err != nil {
+		t.Fatalf("expected archive to be saved: %v", err)
 	}
 }
 

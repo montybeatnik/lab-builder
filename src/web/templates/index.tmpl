@@ -44,10 +44,20 @@
       <label>
         Node type
         <select id="nodeType">
-          <option value="arista" selected>Arista cEOS</option>
-          <option value="frr">FRR</option>
+          <option value="frr" selected>FRR</option>
+          <option value="arista">Arista cEOS</option>
         </select>
       </label>
+      <div id="aristaImagePanel" class="node-type-help" hidden>
+        <div class="node-type-help-title">Arista cEOS image</div>
+        <p class="muted">Required tag: <code>ceosimage:4.34.2.1f</code>. Upload once, then build/deploy as usual.</p>
+        <div class="node-type-help-actions">
+          <button id="aristaImageCheckBtn" class="ghost" type="button">Check image</button>
+          <input id="aristaImageFile" type="file" accept=".tar,.tar.gz,.tgz,.oci,.img">
+          <button id="aristaImageUploadBtn" type="button">Upload &amp; Load</button>
+        </div>
+        <div id="aristaImageStatus" class="muted">Status: not checked</div>
+      </div>
       <label data-topo="leaf-spine">
         Spines
         <input id="spines" type="number" min="1" max="64" value="2">
@@ -74,7 +84,7 @@
       </label>
       <label>
         Edge nodes
-        <input id="edgeNodes" type="number" min="0" max="512" value="8">
+        <input id="edgeNodes" type="number" min="0" max="512" value="4">
       </label>
       <label class="inline-check">
         Multi-homing
@@ -289,12 +299,12 @@ rate(ifOutErrors[5m])</pre>
   </summary>
   <div class="validate-actions">
     <button id="validateBtn" type="button">Validate &amp; Preview</button>
-    <button id="buildBtn" class="ghost" type="button">Generate Lab</button>
+    <button id="buildBtn" type="button">Generate Lab</button>
   </div>
   <div class="form-grid">
     <label>
       Lab name
-      <input id="labName" type="text" value="arista-lab">
+      <input id="labName" type="text" value="frr-lab">
     </label>
     <label>
       Overwrite existing
@@ -341,7 +351,7 @@ rate(ifOutErrors[5m])</pre>
   </div>
   <div class="panel">
     <div class="validate-actions">
-      <button id="deployBtn" class="ghost" type="button">Deploy Lab</button>
+      <button id="deployBtn" type="button">Deploy Lab</button>
       <button id="destroyBtn" class="ghost" type="button">Destroy Lab</button>
       <button id="deleteBtn" class="ghost" type="button">Delete Lab</button>
     </div>

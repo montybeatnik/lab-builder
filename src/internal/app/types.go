@@ -195,6 +195,24 @@ type BuildResponse struct {
 	Files    []string `json:"files,omitempty"`
 }
 
+// AristaImageStatusResponse reports whether the required cEOS image is available locally.
+type AristaImageStatusResponse struct {
+	OK            bool   `json:"ok"`
+	Error         string `json:"error,omitempty"`
+	Present       bool   `json:"present"`
+	RequiredImage string `json:"requiredImage,omitempty"`
+	ArchivePath   string `json:"archivePath,omitempty"`
+}
+
+// AristaImageUploadResponse reports upload + docker load results for a cEOS image archive.
+type AristaImageUploadResponse struct {
+	OK            bool   `json:"ok"`
+	Error         string `json:"error,omitempty"`
+	RequiredImage string `json:"requiredImage,omitempty"`
+	ArchivePath   string `json:"archivePath,omitempty"`
+	Output        string `json:"output,omitempty"`
+}
+
 // DeployRequest asks the runtime to deploy a generated lab with optional sudo/force flags.
 type DeployRequest struct {
 	LabName string `json:"labName"`

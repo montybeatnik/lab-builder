@@ -19,6 +19,12 @@ func TestBuildTopologyModel_NodeTypeFRR(t *testing.T) {
 	}
 }
 
+func TestNormalizeNodeType_DefaultsToFRR(t *testing.T) {
+	if got := normalizeNodeType(""); got != "frr" {
+		t.Fatalf("expected default node type frr, got %q", got)
+	}
+}
+
 func TestBuildTopologyModel_InvalidNodeType(t *testing.T) {
 	_, errs, _ := BuildTopologyModel(TopologyRequest{
 		Topology:   "leaf-spine",

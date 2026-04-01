@@ -47,6 +47,8 @@ func NewMux(h *Handlers) (*http.ServeMux, error) {
 	mux.HandleFunc("/topology/deploy", h.TopologyDeploy)
 	mux.HandleFunc("/topology/destroy", h.TopologyDestroy)
 	mux.HandleFunc("/topology/delete", h.TopologyDelete)
+	mux.HandleFunc("/topology/arista-image/status", h.TopologyAristaImageStatus)
+	mux.HandleFunc("/topology/arista-image/upload", h.TopologyAristaImageUpload)
 	mux.HandleFunc("/topology/live", h.TopologyLive)
 	mux.HandleFunc("/topology/traffic", h.TopologyTraffic)
 	mux.HandleFunc("/walkthroughs/catalog", h.WalkthroughCatalog)
