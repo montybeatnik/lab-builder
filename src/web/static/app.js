@@ -357,6 +357,65 @@
     });
   }
 
+  function setAristaStatus(text, state) {
+    const status = $('aristaImageStatus');
+    if (!status) return;
+    status.textContent = text;
+    status.classList.remove('status-pass-text', 'status-fail-text', 'status-pending-text');
+    if (state === 'pass') status.classList.add('status-pass-text');
+    if (state === 'fail') status.classList.add('status-fail-text');
+    if (state === 'pending') status.classList.add('status-pending-text');
+  }
+
+  async function refreshAristaImageStatus() {
+    const panel = $('aristaImagePanel');
+    if (!panel) return true;
+    const aristaSelected = $('nodeType').value === 'arista';
+    panel.hidden = !aristaSelected;
+    if (!aristaSelected) return true;
+
+    setAristaStatus('Status: checking image...', 'pending');
+    const res = await fetch('/topology/arista-image/status');
+    const data = await res.json().catch(() => ({ ok: false, error: 'bad response', present: false }));
+    if (data.ok && data.present) {
+      setAristaStatus(`Status: ready (${data.requiredImage})`, 'pass');
+      return true;
+    }
+    const detail = data.error ? ` (${data.error})` : '';
+    setAristaStatus(`Status: missing ${data.requiredImage || 'Arista image'}${detail}`, 'fail');
+    return false;
+  }
+
+  async function uploadAristaImage() {
+    const fileInput = $('aristaImageFile');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+      setAristaStatus('Status: choose an image archive first', 'fail');
+      return;
+    }
+    const form = new FormData();
+    form.append('image', fileInput.files[0]);
+    setAristaStatus(`Status: uploading ${fileInput.files[0].name}...`, 'pending');
+    const res = await fetch('/topology/arista-image/upload', {
+      method: 'POST',
+      body: form
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
+    if (!data.ok) {
+      setAristaStatus(`Status: upload failed (${data.error || 'unknown error'})`, 'fail');
+      return;
+    }
+    setAristaStatus(`Status: ready (${data.requiredImage})`, 'pass');
+  }
+
+  async function ensureAristaImageReady() {
+    if ($('nodeType').value !== 'arista') return true;
+    const ready = await refreshAristaImageStatus();
+    if (!ready) {
+      window.alert('Arista cEOS image is missing. Upload it in the Node type section or switch to FRR.');
+    }
+    return ready;
+  }
+
   function protocolLaneConfig(topo) {
     if (topo === 'leaf-spine') {
       return {
@@ -814,6 +873,7 @@
   }
 
   async function validateTopology() {
+    if (!(await ensureAristaImageReady())) return;
     const payload = buildTopologyPayload();
     const status = $('buildStatus');
     status.textContent = 'Validating...';
@@ -837,6 +897,7 @@
   }
 
   async function buildLab() {
+    if (!(await ensureAristaImageReady())) return;
     const payload = {
       ...buildTopologyPayload(),
       labName: $('labName').value.trim(),
@@ -872,6 +933,7 @@
   }
 
   async function deployLab() {
+    if (!(await ensureAristaImageReady())) return;
     const labName = $('labName').value.trim();
     const warning = labDeployWarning(labName);
     if (warning && !window.confirm(warning)) {
@@ -1140,6 +1202,9 @@
       renderEdgeAttachments();
       updateConfigNodeOptions();
     });
+    $('nodeType').addEventListener('change', () => {
+      refreshAristaImageStatus();
+    });
     ['spines', 'leaves', 'meshNodes', 'hubs', 'spokes', 'customNodes', 'edgeNodes'].forEach(id => {
       const el = $(id);
       if (!el) return;
@@ -1167,6 +1232,14 @@
     $('deleteBtn').addEventListener('click', deleteLab);
     $('renderConfigBtn').addEventListener('click', renderConfigPreview);
     $('applyProtoDefaultsBtn').addEventListener('click', applyProtocolDefaults);
+    const aristaCheckBtn = $('aristaImageCheckBtn');
+    if (aristaCheckBtn) {
+      aristaCheckBtn.addEventListener('click', refreshAristaImageStatus);
+    }
+    const aristaUploadBtn = $('aristaImageUploadBtn');
+    if (aristaUploadBtn) {
+      aristaUploadBtn.addEventListener('click', uploadAristaImage);
+    }
     $('builderLabSelect').addEventListener('change', syncSelectedBuilderLab);
     $('labName').addEventListener('input', syncBuilderLabSelection);
     const guidedTourBtn = $('guidedTourStart');
@@ -1252,6 +1325,7 @@
     setupProtocolDrag();
     renderEdgeAttachments();
     updateConfigNodeOptions();
+    refreshAristaImageStatus();
     loadBuilderLabs();
     setMonitoringLinks();
 
