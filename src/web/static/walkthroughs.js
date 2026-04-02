@@ -480,6 +480,7 @@
     .steps li{cursor:pointer;margin:2px 0}
     .steps li.active{color:#22d3ee;font-weight:700}
     .card{border:1px solid #334155;background:#0b1227;border-radius:10px;padding:10px;overflow:auto;min-height:0}
+    .card a{color:#93c5fd}
     pre{margin:0;background:#020617;border:1px solid #334155;border-radius:8px;padding:8px;white-space:pre-wrap;word-break:break-word}
     details{margin-top:8px}
     summary{cursor:pointer;color:#93c5fd}
@@ -542,7 +543,51 @@
       if (step.goal) factLines.push(`Goal: ${step.goal}`);
       if (step.why) factLines.push(`Why: ${step.why}`);
       title.textContent = step.title || '';
-      facts.textContent = factLines.join('\n');
+      facts.innerHTML = '';
+      if (factLines.length) {
+        const preface = doc.createElement('div');
+        preface.textContent = factLines.join('\n');
+        facts.appendChild(preface);
+      }
+      if (Array.isArray(step.notes) && step.notes.length) {
+        const notesHdr = doc.createElement('div');
+        notesHdr.textContent = 'Notes:';
+        notesHdr.style.marginTop = '6px';
+        facts.appendChild(notesHdr);
+        const notesList = doc.createElement('ul');
+        notesList.style.margin = '4px 0 0 18px';
+        step.notes.forEach((note) => {
+          const li = doc.createElement('li');
+          li.textContent = String(note);
+          notesList.appendChild(li);
+        });
+        facts.appendChild(notesList);
+      }
+      if (Array.isArray(step.rfcs) && step.rfcs.length) {
+        const rfcHdr = doc.createElement('div');
+        rfcHdr.textContent = 'RFC references:';
+        rfcHdr.style.marginTop = '6px';
+        facts.appendChild(rfcHdr);
+        const rfcList = doc.createElement('ul');
+        rfcList.style.margin = '4px 0 0 18px';
+        step.rfcs.forEach((ref) => {
+          const li = doc.createElement('li');
+          const label = ref && ref.label ? String(ref.label) : '';
+          const href = ref && ref.href ? String(ref.href) : '';
+          if (href) {
+            const a = doc.createElement('a');
+            a.href = href;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = label || href;
+            li.appendChild(a);
+          } else {
+            li.textContent = label;
+          }
+          rfcList.appendChild(li);
+        });
+        facts.appendChild(rfcList);
+      }
 
       commands.innerHTML = '';
       (Array.isArray(step.commands) ? step.commands : []).forEach((cmd, idx) => {
