@@ -208,6 +208,132 @@
     }).filter((ref) => ref.label);
   }
 
+  function normalizeNodeName(name) {
+    return String(name || '').trim().toLowerCase();
+  }
+
+  function splitNodeTargets(nodeLabel) {
+    const raw = String(nodeLabel || '');
+    return raw
+      .split(/[\/,]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  function roleNodes(plan, role) {
+    const all = Array.isArray(plan && plan.nodes) ? plan.nodes : [];
+    const selected = all.filter((n) => String(n.role || '') === role);
+    const keyNum = (name) => {
+      const m = String(name || '').match(/(\d+)$/);
+      return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+    };
+    return selected.sort((a, b) => {
+      const an = keyNum(a.name);
+      const bn = keyNum(b.name);
+      if (an !== bn) return an - bn;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+  }
+
+  function replaceStepTokens(text, plan, contextNodeName) {
+    let out = String(text || '');
+    const nodes = Array.isArray(plan && plan.nodes) ? plan.nodes : [];
+    const byName = new Map(nodes.map((n) => [normalizeNodeName(n.name), n]));
+    const leaves = roleNodes(plan, 'leaf');
+    const spines = roleNodes(plan, 'spine');
+    const ctx = byName.get(normalizeNodeName(contextNodeName || '')) || null;
+    const firstLeaf = leaves[0] || null;
+    const firstSpine = spines[0] || null;
+
+    const replacePair = (token, value) => {
+      if (!token) return;
+      if (value === undefined || value === null || value === '') return;
+      out = out.split(token).join(String(value));
+    };
+
+    replacePair('<leaf-loopback>', (ctx && ctx.role === 'leaf' && ctx.loopback) ? ctx.loopback : (firstLeaf && firstLeaf.loopback));
+    replacePair('<leaf-asn>', (ctx && ctx.role === 'leaf' && ctx.asn) ? ctx.asn : (firstLeaf && firstLeaf.asn));
+    replacePair('<spine-loopback>', (ctx && ctx.role === 'spine' && ctx.loopback) ? ctx.loopback : (firstSpine && firstSpine.loopback));
+    replacePair('<spine-asn>', (ctx && ctx.role === 'spine' && ctx.asn) ? ctx.asn : (firstSpine && firstSpine.asn));
+
+    leaves.forEach((leaf) => {
+      const idx = String(leaf.name || '').replace(/^leaf/i, '');
+      if (!idx) return;
+      replacePair(`<leaf${idx}-loopback>`, leaf.loopback);
+      replacePair(`<leaf${idx}-asn>`, leaf.asn);
+    });
+    spines.forEach((spine) => {
+      const idx = String(spine.name || '').replace(/^spine/i, '');
+      if (!idx) return;
+      replacePair(`<spine${idx}-loopback>`, spine.loopback);
+      replacePair(`<spine${idx}-asn>`, spine.asn);
+    });
+
+    return out;
+  }
+
+  function expandAndResolveCommands(commands, plan) {
+    const list = Array.isArray(commands) ? commands : [];
+    const leaves = roleNodes(plan, 'leaf');
+    const resolved = [];
+    const shellLines = list.filter((cmd) => typeof cmd === 'string');
+    const hasLeafLoopbackShell = shellLines.some((line) => String(line).includes('<leaf-loopback>'));
+
+    if (shellLines.length) {
+      if (hasLeafLoopbackShell && leaves.length > 0) {
+        leaves.forEach((leaf) => {
+          resolved.push({
+            node: leaf.name,
+            lines: shellLines.map((line) => replaceStepTokens(line, plan, leaf.name))
+          });
+        });
+      } else {
+        shellLines.forEach((line) => {
+          resolved.push(replaceStepTokens(line, plan, ''));
+        });
+      }
+    }
+
+    list.forEach((cmd) => {
+      if (typeof cmd === 'string') return;
+      const lines = Array.isArray(cmd.lines) ? cmd.lines : [];
+      const targets = splitNodeTargets(cmd.node);
+      const needsPerTarget = lines.some((line) => {
+        const text = String(line || '');
+        return text.includes('<leaf-loopback>') || text.includes('<leaf-asn>') || text.includes('<spine-loopback>') || text.includes('<spine-asn>');
+      });
+      if (needsPerTarget && targets.length > 1) {
+        targets.forEach((target) => {
+          resolved.push({
+            node: target,
+            mode: cmd.mode,
+            lines: lines.map((line) => replaceStepTokens(line, plan, target))
+          });
+        });
+        return;
+      }
+      const nodeForContext = targets[0] || String(cmd.node || '');
+      resolved.push({
+        node: cmd.node,
+        mode: cmd.mode,
+        lines: lines.map((line) => replaceStepTokens(line, plan, nodeForContext))
+      });
+    });
+
+    return resolved;
+  }
+
+  function resolveStepsWithPlan(steps, plan) {
+    return (Array.isArray(steps) ? steps : []).map((step) => ({
+      ...step,
+      goal: replaceStepTokens(step.goal || '', plan, ''),
+      why: replaceStepTokens(step.why || '', plan, ''),
+      notes: Array.isArray(step.notes) ? step.notes.map((n) => replaceStepTokens(String(n), plan, '')) : [],
+      validate: replaceStepTokens(step.validate || '', plan, ''),
+      commands: expandAndResolveCommands(step.commands || [], plan)
+    }));
+  }
+
   function safeCloneGuideSteps() {
     return (state.steps || []).map((step) => ({
       title: step.title || '',
@@ -257,6 +383,57 @@
     channel.postMessage({ type: 'state', payload: guidePayload() });
   }
 
+  function escapeHTML(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function popupStepSummaryLines(step) {
+    const lines = [];
+    if (step && step.goal) lines.push(`Goal: ${step.goal}`);
+    if (step && step.why) lines.push(`Why: ${step.why}`);
+    return lines;
+  }
+
+  function popupCommandText(cmd) {
+    if (typeof cmd === 'string') return cmd;
+    const lines = Array.isArray(cmd && cmd.lines) ? cmd.lines : [];
+    if (cmd && cmd.mode === 'vtysh') {
+      return ['vtysh', ...lines].join('\n');
+    }
+    return lines.join('\n');
+  }
+
+  function popupStaticContentHTML(payload) {
+    const steps = Array.isArray(payload && payload.steps) ? payload.steps : [];
+    const idx = Number.isFinite(payload && payload.stepIndex) ? payload.stepIndex : 0;
+    const clamped = steps.length ? Math.max(0, Math.min(idx, steps.length - 1)) : 0;
+    const step = steps[clamped] || {};
+    const lines = popupStepSummaryLines(step);
+    const listHTML = steps.length
+      ? steps.map((s, i) => `<li${i === clamped ? ' class="active"' : ''}>${escapeHTML(s && s.title ? s.title : `Step ${i + 1}`)}</li>`).join('')
+      : '<li class="muted">No steps loaded yet.</li>';
+    const commands = Array.isArray(step.commands) ? step.commands : [];
+    const commandsHTML = commands.map((cmd, i) => {
+      const title = typeof cmd === 'string'
+        ? 'Shell'
+        : `${escapeHTML((cmd && cmd.node) || 'node')}${cmd && cmd.mode ? ` (${escapeHTML(cmd.mode)})` : ''}`;
+      return `<details${i === 0 ? ' open' : ''}><summary>${title}</summary><pre>${escapeHTML(popupCommandText(cmd))}</pre></details>`;
+    }).join('');
+    return {
+      meta: `${payload.activeLab ? `Lab: ${payload.activeLab}  ` : ''}${payload.selectedID ? `Walkthrough: ${payload.selectedID}` : ''}`,
+      steps: listHTML,
+      title: step && step.title ? step.title : (steps.length ? `Step ${clamped + 1}` : 'No steps loaded yet.'),
+      facts: lines.join('\n'),
+      commands: commandsHTML,
+      validate: step && step.validate ? `Validation: ${step.validate}` : ''
+    };
+  }
+
   function reconcileGuideWindowState() {
     if (!state.guidePoppedOut) return;
     if (state.guideWindow && !state.guideWindow.closed) return;
@@ -276,7 +453,9 @@
       setStatus('Popup blocked by browser', 'status-fail');
       return;
     }
-    const popupPayload = encodeURIComponent(JSON.stringify(guidePayload()));
+    const payload = guidePayload();
+    const popupPayload = encodeURIComponent(JSON.stringify(payload));
+    const staticHTML = popupStaticContentHTML(payload);
     const doc = popup.document;
     doc.open();
     doc.write(`<!doctype html>
@@ -309,19 +488,19 @@
   <div class="layout">
     <div class="row">
       <h1>Step-by-Step Guide</h1>
-      <button id="closeBtn" type="button">Close</button>
+      <button id="closeBtn" type="button" onclick="window.close()">Close</button>
     </div>
-    <div id="meta" class="muted"></div>
-    <ol id="steps" class="steps"></ol>
+    <div id="meta" class="muted">${escapeHTML(staticHTML.meta)}</div>
+    <ol id="steps" class="steps">${staticHTML.steps}</ol>
     <div class="actions">
       <button id="prevBtn" type="button">Back</button>
       <button id="nextBtn" type="button">Next</button>
     </div>
     <div class="card">
-      <div id="title"></div>
-      <div id="facts" class="muted"></div>
-      <div id="commands"></div>
-      <div id="validate" class="muted"></div>
+      <div id="title">${escapeHTML(staticHTML.title)}</div>
+      <div id="facts" class="muted">${escapeHTML(staticHTML.facts)}</div>
+      <div id="commands">${staticHTML.commands}</div>
+      <div id="validate" class="muted">${escapeHTML(staticHTML.validate)}</div>
     </div>
   </div>
   <script>
@@ -503,6 +682,23 @@
     if (id === 'evpn-vxlan-stretched-l2-foundation') {
       return [
         {
+          title: 'Why This Design',
+          goal: 'Understand when EVPN/VXLAN stretched L2 is the right choice before configuring the lab.',
+          why: 'This design extends tenant L2 segments across a routed IP fabric using an EVPN control plane, which scales and converges better than flood-and-learn overlays.',
+          notes: [
+            'Use this when workloads must stay in the same VLAN/subnet across racks or pods (for example VM mobility or clustered services).',
+            'Use this when you want L3 underlay ECMP and failure isolation in the fabric while preserving L2 semantics for selected services.',
+            'Avoid stretching every VLAN by default; prefer L3 boundaries where possible and stretch only where there is a concrete application requirement.'
+          ],
+          rfcs: [
+            { label: 'RFC 7348 (VXLAN), section 3', href: 'https://datatracker.ietf.org/doc/html/rfc7348#section-3' },
+            { label: 'RFC 7432 (EVPN), section 1', href: 'https://datatracker.ietf.org/doc/html/rfc7432#section-1' },
+            { label: 'RFC 8365 (NVO solution using EVPN), section 4', href: 'https://datatracker.ietf.org/doc/html/rfc8365#section-4' }
+          ],
+          commands: [],
+          validate: 'You can describe both the operational benefit and a concrete use case where stretched L2 is justified.'
+        },
+        {
           title: 'Verify Underlay BGP',
           goal: 'Confirm ipv4 unicast BGP adjacencies are established between spine and leaves.',
           why: 'A healthy underlay is required before EVPN/VXLAN can provide stable control-plane and data-plane behavior.',
@@ -532,6 +728,10 @@
         {
           title: 'Create Bridge/VXLAN Interface',
           goal: 'Configure a local L2 service construct on each leaf.',
+          rfcs: [
+            { label: 'RFC 7348 (VXLAN), section 5', href: 'https://datatracker.ietf.org/doc/html/rfc7348#section-5' },
+            { label: 'RFC 7348 (VXLAN), section 6', href: 'https://datatracker.ietf.org/doc/html/rfc7348#section-6' }
+          ],
           commands: [
             'ip link add br100 type bridge',
             'ip link add vxlan100 type vxlan id 100 local <leaf-loopback> dstport 4789 nolearning',
@@ -544,6 +744,10 @@
         {
           title: 'Enable EVPN AFI/SAFI',
           goal: 'Configure l2vpn evpn address-family and activate the underlay neighbors.',
+          rfcs: [
+            { label: 'RFC 7432 (EVPN), section 7', href: 'https://datatracker.ietf.org/doc/html/rfc7432#section-7' },
+            { label: 'RFC 8365 (NVO solution using EVPN), section 5', href: 'https://datatracker.ietf.org/doc/html/rfc8365#section-5' }
+          ],
           commands: [
             {
               node: 'spine1',
@@ -598,12 +802,19 @@
         {
           title: 'Map Interfaces Into Bridge',
           goal: 'Verify edge-facing and vxlan interfaces are in the same bridge domain.',
+          rfcs: [
+            { label: 'RFC 7348 (VXLAN data plane), section 6', href: 'https://datatracker.ietf.org/doc/html/rfc7348#section-6' }
+          ],
           commands: ['bridge link', 'bridge vlan show', 'ip -d link show vxlan100'],
           validate: 'Confirm `eth2` and `vxlan100` are in the same bridge domain.'
         },
         {
           title: 'Validate End-To-End Connectivity',
           goal: 'Confirm stretched L2 service by pinging edge-to-edge.',
+          rfcs: [
+            { label: 'RFC 7432 (MAC/IP advertisement model), section 9', href: 'https://datatracker.ietf.org/doc/html/rfc7432#section-9' },
+            { label: 'RFC 8365 (EVPN overlays), section 5.1', href: 'https://datatracker.ietf.org/doc/html/rfc8365#section-5.1' }
+          ],
           commands: ['ping -c 3 <edge-peer-ip>'],
           validate: 'Ping should succeed from edge1 to edge2.'
         }
@@ -1343,6 +1554,7 @@
       return;
     }
     state.plan = data;
+    state.steps = resolveStepsWithPlan(state.steps, state.plan);
     renderGraph(data);
     renderStepper();
   }
