@@ -358,7 +358,12 @@
   function ensureGuideChannel() {
     if (!window.BroadcastChannel) return null;
     if (state.guideChannel) return state.guideChannel;
-    const channel = new window.BroadcastChannel('walkthrough-guide');
+    let channel = null;
+    try {
+      channel = new window.BroadcastChannel('walkthrough-guide');
+    } catch {
+      return null;
+    }
     channel.onmessage = (ev) => {
       const msg = ev && ev.data ? ev.data : {};
       if (msg.type === 'setStepIndex' && Number.isFinite(msg.stepIndex)) {
@@ -378,6 +383,7 @@
   }
 
   function syncGuideWindow() {
+    renderGuidePopupFromParent();
     const channel = ensureGuideChannel();
     if (!channel) return;
     channel.postMessage({ type: 'state', payload: guidePayload() });
@@ -441,22 +447,19 @@
     setGuideDockMode(false);
   }
 
-  function openGuideWindow() {
-    if (state.guideWindow && !state.guideWindow.closed) {
-      setGuideDockMode(true);
-      state.guideWindow.focus();
-      syncGuideWindow();
-      return;
-    }
-    const popup = window.open('', 'walkthrough-guide', 'popup=yes,width=620,height=900,resizable=yes,scrollbars=yes');
-    if (!popup) {
-      setStatus('Popup blocked by browser', 'status-fail');
-      return;
-    }
+  function renderGuidePopupFromParent() {
+    if (!state.guideWindow || state.guideWindow.closed) return;
+    const doc = state.guideWindow.document;
     const payload = guidePayload();
-    const popupPayload = encodeURIComponent(JSON.stringify(payload));
-    const staticHTML = popupStaticContentHTML(payload);
-    const doc = popup.document;
+    const steps = Array.isArray(payload.steps) ? payload.steps : [];
+    if (steps.length) {
+      if (state.stepIndex < 0) state.stepIndex = 0;
+      if (state.stepIndex >= steps.length) state.stepIndex = steps.length - 1;
+    } else {
+      state.stepIndex = 0;
+    }
+    const step = steps[state.stepIndex] || {};
+
     doc.open();
     doc.write(`<!doctype html>
 <html>
@@ -472,7 +475,7 @@
     .layout{height:100%;display:grid;grid-template-rows:auto auto minmax(120px,1fr) auto minmax(220px,2fr);gap:10px;min-height:0}
     h1{font-size:20px;margin:0}
     .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
-    .muted{color:#94a3b8;font-size:12px}
+    .muted{color:#94a3b8;font-size:12px;white-space:pre-wrap}
     .steps{margin:0;padding-left:18px;overflow:auto;min-height:0}
     .steps li{cursor:pointer;margin:2px 0}
     .steps li.active{color:#22d3ee;font-weight:700}
@@ -488,175 +491,122 @@
   <div class="layout">
     <div class="row">
       <h1>Step-by-Step Guide</h1>
-      <button id="closeBtn" type="button" onclick="window.close()">Close</button>
+      <button id="closeBtn" type="button">Close</button>
     </div>
-    <div id="meta" class="muted">${escapeHTML(staticHTML.meta)}</div>
-    <ol id="steps" class="steps">${staticHTML.steps}</ol>
+    <div id="meta" class="muted"></div>
+    <ol id="steps" class="steps"></ol>
     <div class="actions">
       <button id="prevBtn" type="button">Back</button>
       <button id="nextBtn" type="button">Next</button>
     </div>
     <div class="card">
-      <div id="title">${escapeHTML(staticHTML.title)}</div>
-      <div id="facts" class="muted">${escapeHTML(staticHTML.facts)}</div>
-      <div id="commands">${staticHTML.commands}</div>
-      <div id="validate" class="muted">${escapeHTML(staticHTML.validate)}</div>
+      <div id="title"></div>
+      <div id="facts" class="muted"></div>
+      <div id="commands"></div>
+      <div id="validate" class="muted"></div>
     </div>
   </div>
-  <script>
-  (function(){
-    const channel = window.BroadcastChannel ? new BroadcastChannel('walkthrough-guide') : null;
-    const state = { steps: [], stepIndex: 0, selectedID: '', activeLab: '' };
-    function byId(id){ return document.getElementById(id); }
-    function clamp() {
-      if (!state.steps.length) { state.stepIndex = 0; return; }
-      if (state.stepIndex < 0) state.stepIndex = 0;
-      if (state.stepIndex > state.steps.length - 1) state.stepIndex = state.steps.length - 1;
-    }
-    function render() {
-      clamp();
-      const list = byId('steps');
-      const title = byId('title');
-      const facts = byId('facts');
-      const commands = byId('commands');
-      const validate = byId('validate');
-      byId('meta').textContent = (state.activeLab ? ('Lab: ' + state.activeLab + '  ') : '') + (state.selectedID ? ('Walkthrough: ' + state.selectedID) : '');
-      list.innerHTML = '';
-      state.steps.forEach((step, idx) => {
-        const li = document.createElement('li');
-        li.textContent = step.title || ('Step ' + (idx + 1));
-        if (idx === state.stepIndex) li.className = 'active';
-        li.addEventListener('click', () => {
-          state.stepIndex = idx;
-          render();
-          if (channel) channel.postMessage({ type: 'setStepIndex', stepIndex: state.stepIndex });
-        });
-        list.appendChild(li);
+</body>
+</html>`);
+    doc.close();
+
+    const byId = (id) => doc.getElementById(id);
+    const meta = byId('meta');
+    const list = byId('steps');
+    const title = byId('title');
+    const facts = byId('facts');
+    const commands = byId('commands');
+    const validate = byId('validate');
+    if (!meta || !list || !title || !facts || !commands || !validate) return;
+
+    meta.textContent = (payload.activeLab ? `Lab: ${payload.activeLab}  ` : '') + (payload.selectedID ? `Walkthrough: ${payload.selectedID}` : '');
+    list.innerHTML = '';
+    steps.forEach((s, idx) => {
+      const li = doc.createElement('li');
+      li.textContent = s.title || `Step ${idx + 1}`;
+      if (idx === state.stepIndex) li.className = 'active';
+      li.addEventListener('click', () => {
+        state.stepIndex = idx;
+        renderStepper();
       });
-      if (!state.steps.length) {
-        title.textContent = 'No steps loaded yet.';
-        facts.textContent = '';
-        commands.innerHTML = '';
-        validate.textContent = '';
-        return;
-      }
-      const step = state.steps[state.stepIndex];
-      title.textContent = step.title || '';
-      facts.innerHTML = '';
+      list.appendChild(li);
+    });
+
+    if (!steps.length) {
+      title.textContent = 'No steps loaded yet.';
+      facts.textContent = '';
+      commands.innerHTML = '';
+      validate.textContent = '';
+    } else {
       const factLines = [];
-      if (step.goal) factLines.push('Goal: ' + step.goal);
-      if (step.why) factLines.push('Why: ' + step.why);
-      if (factLines.length) {
-        const preface = document.createElement('div');
-        preface.textContent = factLines.join('\n');
-        facts.appendChild(preface);
-      }
-      if (Array.isArray(step.notes) && step.notes.length) {
-        const notesHdr = document.createElement('div');
-        notesHdr.textContent = 'Notes:';
-        notesHdr.style.marginTop = '6px';
-        facts.appendChild(notesHdr);
-        const notesList = document.createElement('ul');
-        notesList.style.margin = '4px 0 0 18px';
-        step.notes.forEach((note) => {
-          const li = document.createElement('li');
-          li.textContent = String(note);
-          notesList.appendChild(li);
-        });
-        facts.appendChild(notesList);
-      }
-      if (Array.isArray(step.rfcs) && step.rfcs.length) {
-        const rfcHdr = document.createElement('div');
-        rfcHdr.textContent = 'RFC references:';
-        rfcHdr.style.marginTop = '6px';
-        facts.appendChild(rfcHdr);
-        const rfcList = document.createElement('ul');
-        rfcList.style.margin = '4px 0 0 18px';
-        step.rfcs.forEach((ref) => {
-          const li = document.createElement('li');
-          const label = ref && ref.label ? String(ref.label) : '';
-          const href = ref && ref.href ? String(ref.href) : '';
-          if (href) {
-            const a = document.createElement('a');
-            a.href = href;
-            a.target = '_blank';
-            a.rel = 'noopener noreferrer';
-            a.textContent = label || href;
-            li.appendChild(a);
-          } else {
-            li.textContent = label;
-          }
-          rfcList.appendChild(li);
-        });
-        facts.appendChild(rfcList);
-      }
+      if (step.goal) factLines.push(`Goal: ${step.goal}`);
+      if (step.why) factLines.push(`Why: ${step.why}`);
+      title.textContent = step.title || '';
+      facts.textContent = factLines.join('\n');
+
       commands.innerHTML = '';
       (Array.isArray(step.commands) ? step.commands : []).forEach((cmd, idx) => {
-        const d = document.createElement('details');
+        const d = doc.createElement('details');
         d.open = idx === 0;
-        const s = document.createElement('summary');
-        const pre = document.createElement('pre');
+        const s = doc.createElement('summary');
+        const pre = doc.createElement('pre');
         if (typeof cmd === 'string') {
           s.textContent = 'Shell';
           pre.textContent = cmd;
         } else {
-          s.textContent = (cmd.node || 'node') + (cmd.mode ? (' (' + cmd.mode + ')') : '');
-          const lines = Array.isArray(cmd.lines) ? cmd.lines : [];
-          pre.textContent = cmd.mode === 'vtysh' ? (['vtysh'].concat(lines).join('\\n')) : lines.join('\\n');
+          s.textContent = (cmd.node || 'node') + (cmd.mode ? ` (${cmd.mode})` : '');
+          pre.textContent = popupCommandText(cmd);
         }
         d.appendChild(s);
         d.appendChild(pre);
         commands.appendChild(d);
       });
-      validate.textContent = step.validate ? ('Validation: ' + step.validate) : '';
+      validate.textContent = step.validate ? `Validation: ${step.validate}` : '';
     }
-    byId('prevBtn').addEventListener('click', () => {
-      state.stepIndex -= 1;
-      render();
-      if (channel) channel.postMessage({ type: 'setStepIndex', stepIndex: state.stepIndex });
-    });
-    byId('nextBtn').addEventListener('click', () => {
-      state.stepIndex += 1;
-      render();
-      if (channel) channel.postMessage({ type: 'setStepIndex', stepIndex: state.stepIndex });
-    });
-    byId('closeBtn').addEventListener('click', () => window.close());
-    window.addEventListener('beforeunload', () => {
-      if (channel) channel.postMessage({ type: 'closed' });
-    });
-    if (channel) {
-      channel.onmessage = (ev) => {
-        const msg = ev && ev.data ? ev.data : {};
-        if (msg.type === 'state' && msg.payload) {
-          state.steps = Array.isArray(msg.payload.steps) ? msg.payload.steps : [];
-          state.stepIndex = Number.isFinite(msg.payload.stepIndex) ? msg.payload.stepIndex : 0;
-          state.selectedID = msg.payload.selectedID || '';
-          state.activeLab = msg.payload.activeLab || '';
-          render();
-        }
-      };
-      channel.postMessage({ type: 'requestState' });
+
+    const prevBtn = byId('prevBtn');
+    const nextBtn = byId('nextBtn');
+    const closeBtn = byId('closeBtn');
+    if (prevBtn) {
+      prevBtn.disabled = state.stepIndex <= 0;
+      prevBtn.addEventListener('click', () => {
+        if (state.stepIndex <= 0) return;
+        state.stepIndex -= 1;
+        renderStepper();
+      });
     }
-    try {
-      const payloadEncoded = '${popupPayload}';
-      if (payloadEncoded) {
-        const payload = JSON.parse(decodeURIComponent(payloadEncoded));
-        state.steps = Array.isArray(payload.steps) ? payload.steps : [];
-        state.stepIndex = Number.isFinite(payload.stepIndex) ? payload.stepIndex : 0;
-        state.selectedID = payload.selectedID || '';
-        state.activeLab = payload.activeLab || '';
-      }
-    } catch {}
-    render();
-  })();
-  </script>
-</body>
-</html>`);
-    doc.close();
+    if (nextBtn) {
+      nextBtn.disabled = steps.length === 0 || state.stepIndex >= steps.length - 1;
+      nextBtn.addEventListener('click', () => {
+        if (state.stepIndex >= steps.length - 1) return;
+        state.stepIndex += 1;
+        renderStepper();
+      });
+    }
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        try { state.guideWindow.close(); } catch {}
+        state.guideWindow = null;
+        setGuideDockMode(false);
+      });
+    }
+  }
+
+  function openGuideWindow() {
+    if (state.guideWindow && !state.guideWindow.closed) {
+      setGuideDockMode(true);
+      state.guideWindow.focus();
+      renderGuidePopupFromParent();
+      return;
+    }
+    const popup = window.open('', 'walkthrough-guide', 'popup=yes,width=620,height=900,resizable=yes,scrollbars=yes');
+    if (!popup) {
+      setStatus('Popup blocked by browser', 'status-fail');
+      return;
+    }
     state.guideWindow = popup;
     setGuideDockMode(true);
-    ensureGuideChannel();
-    syncGuideWindow();
+    renderGuidePopupFromParent();
   }
 
   function ensureTerminalVisible() {
