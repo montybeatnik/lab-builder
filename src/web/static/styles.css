@@ -846,13 +846,83 @@ a.monitor-link {
 
 #walkthroughGraph {
   width: 100%;
-  height: 520px;
+  height: 100%;
+  min-height: 0;
   display: block;
 }
 
 #walkthroughRunner.grid {
   grid-template-columns: minmax(680px, 1.45fr) minmax(520px, 1fr);
   align-items: start;
+}
+
+#walkthroughRunner.grid.guide-popped-out {
+  grid-template-columns: 1fr;
+}
+
+#walkthroughRunner.grid.guide-popped-out #walkthroughGuidePanel {
+  display: none !important;
+}
+
+.walkthrough-guide-popout-mode #walkthroughRunner.grid.guide-popped-out {
+  align-items: stretch;
+}
+
+.walkthrough-guide-popout-mode #walkthroughWorkarea {
+  min-height: clamp(640px, calc(100vh - 190px), 1200px);
+  grid-template-rows: minmax(340px, 1fr) 14px minmax(360px, 1fr);
+}
+
+.walkthrough-workarea {
+  display: grid;
+  grid-template-rows: minmax(340px, 55vh) 14px minmax(360px, 45vh);
+  min-height: 0;
+}
+
+.walkthrough-workarea.no-console {
+  grid-template-rows: minmax(420px, 1fr);
+}
+
+.walkthrough-workarea.no-console .walkthrough-pane-resizer {
+  display: none;
+}
+
+.walkthrough-workarea .graph-panel {
+  min-height: 0;
+}
+
+#walkthroughWorkarea > .panel {
+  min-height: 0;
+}
+
+#walkthroughTopologyPanel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#walkthroughTopologyPanel .graph-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#walkthroughConsolePanel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+.walkthrough-pane-resizer {
+  cursor: row-resize;
+  background: linear-gradient(90deg, rgba(100, 116, 139, 0.15), rgba(34, 211, 238, 0.55), rgba(100, 116, 139, 0.15));
+  border-radius: 999px;
+  margin: 0.3rem 0;
+}
+
+.walkthrough-pane-resizer:hover {
+  filter: brightness(1.12);
 }
 
 .walkthrough-steps {
@@ -956,9 +1026,11 @@ a.monitor-link {
   border-radius: 0;
   font-size: 0.82rem;
   line-height: 1.35;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  word-break: normal;
   padding: 0.65rem 0.7rem;
+  overflow: auto;
+  max-width: 100%;
 }
 
 .walkthrough-step-validation {
@@ -980,9 +1052,12 @@ a.monitor-link {
 
 .walkthrough-terminal {
   margin-top: 0.8rem;
-  min-height: 260px;
-  max-height: 360px;
+  min-height: 240px;
+  height: 320px;
+  max-height: none;
+  flex: 1 1 auto;
   overflow: auto;
+  resize: vertical;
   border-radius: var(--radius-sm);
   border: 1px solid #334155;
   background: #050b19;
@@ -1287,6 +1362,9 @@ button:focus {
   .status-card { width: 100%; }
   .page-live .grid { grid-template-columns: 1fr; }
   #walkthroughRunner.grid { grid-template-columns: 1fr; }
+  .walkthrough-workarea {
+    grid-template-rows: minmax(300px, 52vh) 10px minmax(220px, 42vh);
+  }
   .walkthrough-guide-panel {
     min-height: 0;
     max-height: none;

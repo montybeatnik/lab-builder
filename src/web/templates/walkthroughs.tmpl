@@ -62,18 +62,36 @@
 </section>
 
 <section id="walkthroughRunner" class="grid" hidden>
-  <div class="panel graph-panel">
-    <div class="graph-header">
-      <h2>Walkthrough Topology</h2>
-      <button id="walkthroughRefreshTopoBtn" class="ghost" type="button">Refresh</button>
+  <div id="walkthroughWorkarea" class="walkthrough-workarea no-console">
+    <div id="walkthroughTopologyPanel" class="panel graph-panel">
+      <div class="graph-header">
+        <h2>Walkthrough Topology</h2>
+        <button id="walkthroughRefreshTopoBtn" class="ghost" type="button">Refresh</button>
+      </div>
+      <div class="graph-wrap future-wrap">
+        <svg id="walkthroughGraph" class="future-mode" viewBox="0 0 1000 520" role="img" aria-label="Walkthrough topology"></svg>
+      </div>
+      <p class="muted">Click a node to open the command console for that node.</p>
     </div>
-    <div class="graph-wrap future-wrap">
-      <svg id="walkthroughGraph" class="future-mode" viewBox="0 0 1000 520" role="img" aria-label="Walkthrough topology"></svg>
+    <div id="walkthroughPaneResizer" class="walkthrough-pane-resizer" title="Drag to resize topology and console" aria-hidden="true"></div>
+    <div id="walkthroughConsolePanel" class="panel">
+      <div class="validate-header">
+        <h2>Node Console</h2>
+        <span id="walkthroughConsoleNode" class="muted">No node selected</span>
+      </div>
+      <p class="muted">Interactive shell session. Click terminal to focus, then type commands directly.</p>
+      <div id="walkthroughTerminalScreen" class="walkthrough-terminal">Select a node in the topology to start an interactive terminal session.</div>
+      <div class="validate-actions">
+        <button id="walkthroughConsoleReconnectBtn" class="ghost" type="button">Reconnect</button>
+        <button id="walkthroughCaptureBtn" class="ghost" type="button">Capture Traffic</button>
+      </div>
     </div>
-    <p class="muted">Click a node to open the command console for that node.</p>
   </div>
-  <div class="panel walkthrough-guide-panel">
-    <h2>Step-by-Step Guide</h2>
+  <div id="walkthroughGuidePanel" class="panel walkthrough-guide-panel">
+    <div class="validate-header">
+      <h2>Step-by-Step Guide</h2>
+      <button id="walkthroughPopoutGuideBtn" class="ghost" type="button">Open Guide</button>
+    </div>
     <ol id="walkthroughSteps" class="walkthrough-steps"></ol>
     <div class="validate-actions">
       <button id="walkthroughPrevStepBtn" class="ghost" type="button">Back</button>
@@ -85,19 +103,6 @@
       <div id="walkthroughStepCommands" class="walkthrough-step-commands"></div>
       <div id="walkthroughStepValidation" class="walkthrough-step-validation"></div>
     </div>
-  </div>
-</section>
-
-<section id="walkthroughConsolePanel" class="panel" hidden>
-  <div class="validate-header">
-    <h2>Node Console</h2>
-    <span id="walkthroughConsoleNode" class="muted">No node selected</span>
-  </div>
-  <p class="muted">Interactive shell session. Click terminal to focus, then type commands directly.</p>
-  <div id="walkthroughTerminalScreen" class="walkthrough-terminal"></div>
-  <div class="validate-actions">
-    <button id="walkthroughConsoleReconnectBtn" class="ghost" type="button">Reconnect</button>
-    <button id="walkthroughCaptureBtn" class="ghost" type="button">Capture Traffic</button>
   </div>
 </section>
 
