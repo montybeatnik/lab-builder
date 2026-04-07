@@ -31,10 +31,11 @@ func TestWalkthroughsJS_PopoutGuideContract(t *testing.T) {
 	src := string(raw)
 
 	required := []string{
-		"channel.postMessage({ type: 'requestState' });",
-		"if (msg.type === 'state' && msg.payload) {",
-		"state.steps = Array.isArray(msg.payload.steps) ? msg.payload.steps : [];",
-		"byId('closeBtn').addEventListener('click', () => window.close());",
+		"function renderGuidePopupFromParent() {",
+		"li.addEventListener('click', () => {",
+		"prevBtn.addEventListener('click', () => {",
+		"nextBtn.addEventListener('click', () => {",
+		"closeBtn.addEventListener('click', () => {",
 	}
 	for _, snippet := range required {
 		if !strings.Contains(src, snippet) {
@@ -42,4 +43,3 @@ func TestWalkthroughsJS_PopoutGuideContract(t *testing.T) {
 		}
 	}
 }
-

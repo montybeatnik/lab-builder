@@ -104,6 +104,8 @@ type LinkAssignedJSON struct {
 	B   string `json:"b"`
 	AIf string `json:"aIf"`
 	BIf string `json:"bIf"`
+	AIP string `json:"aIp,omitempty"`
+	BIP string `json:"bIp,omitempty"`
 }
 
 type ProtocolSetJSON struct {

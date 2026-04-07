@@ -125,6 +125,21 @@ func SaveLabPlan(db *sql.DB, labName string, plan labplanner.LabPlan, protocols 
 			return err
 		}
 	}
+	existingNode := map[string]bool{}
+	for _, n := range plan.Nodes {
+		existingNode[n.Name] = true
+	}
+	for _, e := range plan.EdgeHosts {
+		if existingNode[e.Name] {
+			continue
+		}
+		if _, err := tx.Exec(
+			"INSERT INTO nodes (lab_name, name, role, asn, loopback, edge_ip, edge_prefix) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			labName, e.Name, "edge", 0, "", e.IP, e.Prefix,
+		); err != nil {
+			return err
+		}
+	}
 	for _, l := range plan.Links {
 		if _, err := tx.Exec(
 			"INSERT INTO links (lab_name, a, b, a_if, b_if, subnet, a_ip, b_ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

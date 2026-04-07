@@ -553,6 +553,8 @@ func (h *Handlers) LabPlan(w http.ResponseWriter, r *http.Request) {
 			B:   l.B,
 			AIf: l.AIf,
 			BIf: l.BIf,
+			AIP: l.AIP,
+			BIP: l.BIP,
 		})
 	}
 

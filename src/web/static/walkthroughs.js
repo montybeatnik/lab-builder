@@ -35,6 +35,10 @@
     selectedID: 'walkthrough:selectedID',
     activeLab: 'walkthrough:activeLab'
   };
+  const WORKAREA_RESIZER_PX = 14;
+  const TOPOLOGY_MIN_PX = 360;
+  const CONSOLE_MIN_PX = 260;
+  const DEFAULT_TOPOLOGY_RATIO = 0.56;
 
   function launchBtn() {
     return $('walkthroughLaunchBtn');
@@ -100,8 +104,50 @@
     }
     workarea.classList.remove('no-console');
     if (!workarea.style.gridTemplateRows) {
-      workarea.style.gridTemplateRows = 'minmax(340px, 55vh) 14px minmax(360px, 45vh)';
+      applyDefaultWorkareaRows(workarea);
+    } else {
+      clampWorkareaRows(workarea);
     }
+  }
+
+  function parseWorkareaRowsPx(value) {
+    const m = String(value || '').trim().match(/^(\d+)px\s+(\d+)px\s+(\d+)px$/);
+    if (!m) return null;
+    return {
+      top: Number(m[1]),
+      handle: Number(m[2]),
+      bottom: Number(m[3])
+    };
+  }
+
+  function applyDefaultWorkareaRows(workarea) {
+    const rect = workarea.getBoundingClientRect();
+    if (!rect.height || rect.height < (TOPOLOGY_MIN_PX + CONSOLE_MIN_PX + WORKAREA_RESIZER_PX)) {
+      workarea.style.gridTemplateRows = 'minmax(360px, 56vh) 14px minmax(260px, 44vh)';
+      return;
+    }
+    const handle = WORKAREA_RESIZER_PX;
+    const maxTop = rect.height - CONSOLE_MIN_PX - handle;
+    const desiredTop = Math.round(rect.height * DEFAULT_TOPOLOGY_RATIO);
+    const top = Math.max(TOPOLOGY_MIN_PX, Math.min(desiredTop, maxTop));
+    const bottom = Math.max(CONSOLE_MIN_PX, Math.round(rect.height - top - handle));
+    workarea.style.gridTemplateRows = `${top}px ${handle}px ${bottom}px`;
+  }
+
+  function clampWorkareaRows(workarea) {
+    const parsed = parseWorkareaRowsPx(workarea.style.gridTemplateRows);
+    if (!parsed) return;
+    const rect = workarea.getBoundingClientRect();
+    if (!rect.height) return;
+    const handle = Math.max(WORKAREA_RESIZER_PX, parsed.handle || WORKAREA_RESIZER_PX);
+    const maxTop = rect.height - CONSOLE_MIN_PX - handle;
+    if (maxTop < TOPOLOGY_MIN_PX) {
+      applyDefaultWorkareaRows(workarea);
+      return;
+    }
+    const top = Math.max(TOPOLOGY_MIN_PX, Math.min(parsed.top, maxTop));
+    const bottom = Math.max(CONSOLE_MIN_PX, Math.round(rect.height - top - handle));
+    workarea.style.gridTemplateRows = `${Math.round(top)}px ${Math.round(handle)}px ${Math.round(bottom)}px`;
   }
 
   function fitTerminal() {
@@ -124,9 +170,9 @@
     if (!explicitTerminalHeight || !/px$/i.test(explicitTerminalHeight)) return;
     const rect = workarea.getBoundingClientRect();
     if (rect.height < 200) return;
-    const handleH = Math.max(10, Math.round(resizer.getBoundingClientRect().height || 14));
-    const minTop = 260;
-    const minBottom = 320;
+    const handleH = Math.max(WORKAREA_RESIZER_PX, Math.round(resizer.getBoundingClientRect().height || WORKAREA_RESIZER_PX));
+    const minTop = TOPOLOGY_MIN_PX;
+    const minBottom = CONSOLE_MIN_PX;
     const panelRect = consolePanel.getBoundingClientRect();
     const terminalRect = terminalHost ? terminalHost.getBoundingClientRect() : { height: 0 };
     const chromeHeight = Math.max(120, Math.round(panelRect.height - terminalRect.height));
@@ -135,6 +181,7 @@
     const bottom = Math.min(desiredBottom, maxBottom);
     const top = Math.max(minTop, rect.height - handleH - bottom);
     workarea.style.gridTemplateRows = `${Math.round(top)}px ${handleH}px ${Math.round(bottom)}px`;
+    clampWorkareaRows(workarea);
   }
 
   function setGuideDockMode(poppedOut) {
@@ -164,13 +211,14 @@
       if (!state.resizingPanes || consolePanel.hidden) return;
       const rect = workarea.getBoundingClientRect();
       const handleH = resizer.getBoundingClientRect().height || 10;
-      const minTop = 260;
-      const minBottom = 180;
+      const minTop = TOPOLOGY_MIN_PX;
+      const minBottom = CONSOLE_MIN_PX;
       let top = ev.clientY - rect.top;
       top = Math.max(minTop, top);
       top = Math.min(rect.height - minBottom - handleH, top);
       const bottom = Math.max(minBottom, rect.height - top - handleH);
       workarea.style.gridTemplateRows = `${Math.round(top)}px ${Math.round(handleH)}px ${Math.round(bottom)}px`;
+      clampWorkareaRows(workarea);
       fitTerminal();
     };
 
@@ -235,15 +283,31 @@
     });
   }
 
+  function linkPeerIP(plan, localName, remoteName) {
+    const links = Array.isArray(plan && plan.links) ? plan.links : [];
+    const local = normalizeNodeName(localName);
+    const remote = normalizeNodeName(remoteName);
+    for (const l of links) {
+      const a = normalizeNodeName(l && l.a);
+      const b = normalizeNodeName(l && l.b);
+      if (a === local && b === remote) return String(l.bIp || '');
+      if (a === remote && b === local) return String(l.aIp || '');
+    }
+    return '';
+  }
+
   function replaceStepTokens(text, plan, contextNodeName) {
     let out = String(text || '');
     const nodes = Array.isArray(plan && plan.nodes) ? plan.nodes : [];
     const byName = new Map(nodes.map((n) => [normalizeNodeName(n.name), n]));
     const leaves = roleNodes(plan, 'leaf');
     const spines = roleNodes(plan, 'spine');
+    const edges = roleNodes(plan, 'edge');
     const ctx = byName.get(normalizeNodeName(contextNodeName || '')) || null;
     const firstLeaf = leaves[0] || null;
     const firstSpine = spines[0] || null;
+    const edge1 = byName.get('edge1') || edges[0] || null;
+    const edge2 = byName.get('edge2') || edges[1] || null;
 
     const replacePair = (token, value) => {
       if (!token) return;
@@ -269,15 +333,95 @@
       replacePair(`<spine${idx}-asn>`, spine.asn);
     });
 
+    edges.forEach((edge) => {
+      const idx = String(edge.name || '').replace(/^edge/i, '');
+      if (!idx) return;
+      replacePair(`<edge${idx}-ip>`, edge.edgeIp);
+    });
+    replacePair('<edge1-ip>', edge1 && edge1.edgeIp);
+    replacePair('<edge2-ip>', edge2 && edge2.edgeIp);
+
+    // Underlay neighbor IPs (directly connected link endpoints), which match
+    // the default generated FRR BGP model.
+    if (firstSpine) {
+      const spinePeer = linkPeerIP(plan, contextNodeName, firstSpine.name);
+      replacePair('<spine-underlay-ip>', spinePeer);
+      const spine1Peer = linkPeerIP(plan, contextNodeName, 'spine1');
+      replacePair('<spine1-underlay-ip>', spine1Peer || spinePeer);
+    }
+    leaves.forEach((leaf) => {
+      const idx = String(leaf.name || '').replace(/^leaf/i, '');
+      if (!idx) return;
+      const peer = linkPeerIP(plan, contextNodeName, leaf.name);
+      replacePair(`<leaf${idx}-underlay-ip>`, peer);
+    });
+
+    if (out.includes('<edge-peer-ip>') || out.includes('<remote-endpoint-ip>')) {
+      let peerIP = '';
+      if (ctx && /^edge\d+$/i.test(String(ctx.name || ''))) {
+        const ctxName = normalizeNodeName(ctx.name);
+        const peer = edges.find((e) => normalizeNodeName(e.name) !== ctxName);
+        peerIP = (peer && peer.edgeIp) || '';
+      }
+      if (!peerIP) {
+        peerIP = (edge2 && edge2.edgeIp) || (edge1 && edge1.edgeIp) || '';
+      }
+      replacePair('<edge-peer-ip>', peerIP);
+      replacePair('<remote-endpoint-ip>', peerIP);
+    }
+
+    // Final cleanup: replace any remaining placeholder token with a best-effort
+    // value derived from the live plan so users never need manual token edits.
+    out = out.replace(/<([^>\n]+)>/g, (_, rawToken) => {
+      const token = String(rawToken || '').toLowerCase();
+      if (token.includes('leaf') && token.includes('loopback')) {
+        return (ctx && ctx.role === 'leaf' && ctx.loopback) || (firstLeaf && firstLeaf.loopback) || '';
+      }
+      if (token.includes('spine') && token.includes('loopback')) {
+        return (ctx && ctx.role === 'spine' && ctx.loopback) || (firstSpine && firstSpine.loopback) || '';
+      }
+      if (token.includes('loopback')) {
+        return (ctx && ctx.loopback) || (firstLeaf && firstLeaf.loopback) || (firstSpine && firstSpine.loopback) || '';
+      }
+      if (token.includes('leaf') && token.includes('asn')) {
+        return (ctx && ctx.role === 'leaf' && ctx.asn) || (firstLeaf && firstLeaf.asn) || '';
+      }
+      if (token.includes('spine') && token.includes('asn')) {
+        return (ctx && ctx.role === 'spine' && ctx.asn) || (firstSpine && firstSpine.asn) || '';
+      }
+      if (token.includes('asn')) {
+        return (ctx && ctx.asn) || (firstLeaf && firstLeaf.asn) || (firstSpine && firstSpine.asn) || '';
+      }
+      if (token.includes('peer') && token.includes('ip')) {
+        if (ctx && /^edge\d+$/i.test(String(ctx.name || ''))) {
+          const peer = edges.find((e) => normalizeNodeName(e.name) !== normalizeNodeName(ctx.name));
+          return (peer && peer.edgeIp) || '';
+        }
+        return (edge2 && edge2.edgeIp) || (edge1 && edge1.edgeIp) || '';
+      }
+      if (token.includes('edge') && token.includes('ip')) {
+        return (edge2 && edge2.edgeIp) || (edge1 && edge1.edgeIp) || '';
+      }
+      if (token.includes('ip')) {
+        return (ctx && ctx.edgeIp) || (edge2 && edge2.edgeIp) || (edge1 && edge1.edgeIp) || '';
+      }
+      return '';
+    });
+
     return out;
   }
 
   function expandAndResolveCommands(commands, plan) {
     const list = Array.isArray(commands) ? commands : [];
     const leaves = roleNodes(plan, 'leaf');
+    const edges = roleNodes(plan, 'edge');
     const resolved = [];
     const shellLines = list.filter((cmd) => typeof cmd === 'string');
     const hasLeafLoopbackShell = shellLines.some((line) => String(line).includes('<leaf-loopback>'));
+    const hasEdgePeerShell = shellLines.some((line) => {
+      const t = String(line);
+      return t.includes('<edge-peer-ip>') || t.includes('<remote-endpoint-ip>');
+    });
 
     if (shellLines.length) {
       if (hasLeafLoopbackShell && leaves.length > 0) {
@@ -285,6 +429,13 @@
           resolved.push({
             node: leaf.name,
             lines: shellLines.map((line) => replaceStepTokens(line, plan, leaf.name))
+          });
+        });
+      } else if (hasEdgePeerShell && edges.length > 1) {
+        edges.forEach((edge) => {
+          resolved.push({
+            node: edge.name,
+            lines: shellLines.map((line) => replaceStepTokens(line, plan, edge.name))
           });
         });
       } else {
@@ -300,7 +451,12 @@
       const targets = splitNodeTargets(cmd.node);
       const needsPerTarget = lines.some((line) => {
         const text = String(line || '');
-        return text.includes('<leaf-loopback>') || text.includes('<leaf-asn>') || text.includes('<spine-loopback>') || text.includes('<spine-asn>');
+        return text.includes('<leaf-loopback>')
+          || text.includes('<leaf-asn>')
+          || text.includes('<spine-loopback>')
+          || text.includes('<spine-asn>')
+          || text.includes('<edge-peer-ip>')
+          || text.includes('<remote-endpoint-ip>');
       });
       if (needsPerTarget && targets.length > 1) {
         targets.forEach((target) => {
@@ -481,8 +637,8 @@
     .steps li.active{color:#22d3ee;font-weight:700}
     .card{border:1px solid #334155;background:#0b1227;border-radius:10px;padding:10px;overflow:auto;min-height:0}
     .card a{color:#93c5fd}
-    pre{margin:0;background:#020617;border:1px solid #334155;border-radius:8px;padding:8px;white-space:pre-wrap;word-break:break-word}
-    details{margin-top:8px}
+    pre{margin:0;background:#020617;border:1px solid #334155;border-radius:8px;padding:8px;white-space:pre;word-break:normal;overflow:auto;max-width:100%}
+    details{margin-top:8px;overflow:hidden}
     summary{cursor:pointer;color:#93c5fd}
     .actions{display:flex;gap:8px}
     button{border:1px solid #334155;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:7px 10px;cursor:pointer}
@@ -739,6 +895,9 @@
         {
           title: 'Enable EVPN AFI/SAFI',
           goal: 'Configure l2vpn evpn address-family and activate the underlay neighbors.',
+          notes: [
+            'Skip `write memory` in this lab: FRR config paths are bind-mounted and runtime writes can fail with permission/resource-busy errors.'
+          ],
           rfcs: [
             { label: 'RFC 7432 (EVPN), section 7', href: 'https://datatracker.ietf.org/doc/html/rfc7432#section-7' },
             { label: 'RFC 8365 (NVO solution using EVPN), section 5', href: 'https://datatracker.ietf.org/doc/html/rfc8365#section-5' }
@@ -749,13 +908,16 @@
               mode: 'vtysh',
               lines: [
                 'conf t',
-                'router bgp <spine-asn>',
+                'router bgp 65000',
                 'address-family l2vpn evpn',
-                'neighbor <leaf1-loopback> activate',
-                'neighbor <leaf2-loopback> activate',
+                'neighbor 10.0.0.5 activate',
+                'neighbor 10.0.0.7 activate',
+                'neighbor 10.0.0.5 route-map ALLOW-ALL in',
+                'neighbor 10.0.0.5 route-map ALLOW-ALL out',
+                'neighbor 10.0.0.7 route-map ALLOW-ALL in',
+                'neighbor 10.0.0.7 route-map ALLOW-ALL out',
                 'advertise-all-vni',
-                'end',
-                'write memory'
+                'end'
               ]
             },
             {
@@ -763,12 +925,13 @@
               mode: 'vtysh',
               lines: [
                 'conf t',
-                'router bgp <leaf1-asn>',
+                'router bgp 65100',
                 'address-family l2vpn evpn',
-                'neighbor <spine-loopback> activate',
+                'neighbor 10.0.0.4 activate',
+                'neighbor 10.0.0.4 route-map ALLOW-ALL in',
+                'neighbor 10.0.0.4 route-map ALLOW-ALL out',
                 'advertise-all-vni',
-                'end',
-                'write memory'
+                'end'
               ]
             },
             {
@@ -776,12 +939,13 @@
               mode: 'vtysh',
               lines: [
                 'conf t',
-                'router bgp <leaf2-asn>',
+                'router bgp 65101',
                 'address-family l2vpn evpn',
-                'neighbor <spine-loopback> activate',
+                'neighbor 10.0.0.6 activate',
+                'neighbor 10.0.0.6 route-map ALLOW-ALL in',
+                'neighbor 10.0.0.6 route-map ALLOW-ALL out',
                 'advertise-all-vni',
-                'end',
-                'write memory'
+                'end'
               ]
             },
             {
@@ -810,8 +974,16 @@
             { label: 'RFC 7432 (MAC/IP advertisement model), section 9', href: 'https://datatracker.ietf.org/doc/html/rfc7432#section-9' },
             { label: 'RFC 8365 (EVPN overlays), section 5.1', href: 'https://datatracker.ietf.org/doc/html/rfc8365#section-5.1' }
           ],
-          commands: ['ping -c 3 <edge-peer-ip>'],
-          validate: 'Ping should succeed from edge1 to edge2.'
+          commands: [
+            {
+              node: 'edge1',
+              mode: 'shell',
+              lines: [
+                'ping -c 3 172.16.0.2'
+              ]
+            }
+          ],
+          validate: 'Log into edge1 and run `ping -c 3 172.16.0.2`.'
         }
       ];
     }
@@ -881,33 +1053,70 @@
         {
           title: 'Enable EVPN On Spine/Leaves',
           goal: 'Activate l2vpn evpn neighbors for all 3 leaves.',
+          notes: [
+            'Skip `write memory` in this lab: FRR config paths are bind-mounted and runtime writes can fail with permission/resource-busy errors.'
+          ],
           commands: [
             {
               node: 'spine1',
               mode: 'vtysh',
               lines: [
                 'conf t',
-                'router bgp <spine-asn>',
+                'router bgp 65000',
                 'address-family l2vpn evpn',
-                'neighbor <leaf1-loopback> activate',
-                'neighbor <leaf2-loopback> activate',
-                'neighbor <leaf3-loopback> activate',
+                'neighbor 10.0.1.7 activate',
+                'neighbor 10.0.1.9 activate',
+                'neighbor 10.0.1.11 activate',
+                'neighbor 10.0.1.7 route-map ALLOW-ALL in',
+                'neighbor 10.0.1.7 route-map ALLOW-ALL out',
+                'neighbor 10.0.1.9 route-map ALLOW-ALL in',
+                'neighbor 10.0.1.9 route-map ALLOW-ALL out',
+                'neighbor 10.0.1.11 route-map ALLOW-ALL in',
+                'neighbor 10.0.1.11 route-map ALLOW-ALL out',
                 'advertise-all-vni',
-                'end',
-                'write memory'
+                'end'
               ]
             },
             {
-              node: 'leaf1 / leaf2 / leaf3',
+              node: 'leaf1',
               mode: 'vtysh',
               lines: [
                 'conf t',
-                'router bgp <leaf-asn>',
+                'router bgp 65100',
                 'address-family l2vpn evpn',
-                'neighbor <spine-loopback> activate',
+                'neighbor 10.0.1.6 activate',
+                'neighbor 10.0.1.6 route-map ALLOW-ALL in',
+                'neighbor 10.0.1.6 route-map ALLOW-ALL out',
                 'advertise-all-vni',
-                'end',
-                'write memory'
+                'end'
+              ]
+            },
+            {
+              node: 'leaf2',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp 65101',
+                'address-family l2vpn evpn',
+                'neighbor 10.0.1.8 activate',
+                'neighbor 10.0.1.8 route-map ALLOW-ALL in',
+                'neighbor 10.0.1.8 route-map ALLOW-ALL out',
+                'advertise-all-vni',
+                'end'
+              ]
+            },
+            {
+              node: 'leaf3',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp 65102',
+                'address-family l2vpn evpn',
+                'neighbor 10.0.1.10 activate',
+                'neighbor 10.0.1.10 route-map ALLOW-ALL in',
+                'neighbor 10.0.1.10 route-map ALLOW-ALL out',
+                'advertise-all-vni',
+                'end'
               ]
             }
           ],
@@ -989,32 +1198,53 @@
         {
           title: 'Enable EVPN Address Family',
           goal: 'Activate l2vpn evpn neighbors on spine and leaves and advertise VNIs.',
+          notes: [
+            'Skip `write memory` in this lab: FRR config paths are bind-mounted and runtime writes can fail with permission/resource-busy errors.'
+          ],
           commands: [
             {
               node: 'spine1',
               mode: 'vtysh',
               lines: [
                 'conf t',
-                'router bgp <spine-asn>',
+                'router bgp 65000',
                 'address-family l2vpn evpn',
-                'neighbor <leaf1-loopback> activate',
-                'neighbor <leaf2-loopback> activate',
+                'neighbor 10.0.2.5 activate',
+                'neighbor 10.0.2.7 activate',
+                'neighbor 10.0.2.5 route-map ALLOW-ALL in',
+                'neighbor 10.0.2.5 route-map ALLOW-ALL out',
+                'neighbor 10.0.2.7 route-map ALLOW-ALL in',
+                'neighbor 10.0.2.7 route-map ALLOW-ALL out',
                 'advertise-all-vni',
-                'end',
-                'write memory'
+                'end'
               ]
             },
             {
-              node: 'leaf1 / leaf2',
+              node: 'leaf1',
               mode: 'vtysh',
               lines: [
                 'conf t',
-                'router bgp <leaf-asn>',
+                'router bgp 65100',
                 'address-family l2vpn evpn',
-                'neighbor <spine-loopback> activate',
+                'neighbor 10.0.2.4 activate',
+                'neighbor 10.0.2.4 route-map ALLOW-ALL in',
+                'neighbor 10.0.2.4 route-map ALLOW-ALL out',
                 'advertise-all-vni',
-                'end',
-                'write memory'
+                'end'
+              ]
+            },
+            {
+              node: 'leaf2',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp 65101',
+                'address-family l2vpn evpn',
+                'neighbor 10.0.2.6 activate',
+                'neighbor 10.0.2.6 route-map ALLOW-ALL in',
+                'neighbor 10.0.2.6 route-map ALLOW-ALL out',
+                'advertise-all-vni',
+                'end'
               ]
             }
           ],
@@ -1036,15 +1266,25 @@
               ]
             },
             {
-              node: 'leaf1 / leaf2',
+              node: 'leaf1',
               mode: 'vtysh',
               lines: [
                 'conf t',
-                'router bgp <leaf-asn>',
+                'router bgp 65100',
                 'address-family l2vpn evpn',
                 'advertise ipv4 unicast',
-                'end',
-                'write memory'
+                'end'
+              ]
+            },
+            {
+              node: 'leaf2',
+              mode: 'vtysh',
+              lines: [
+                'conf t',
+                'router bgp 65101',
+                'address-family l2vpn evpn',
+                'advertise ipv4 unicast',
+                'end'
               ]
             }
           ],
@@ -1786,6 +2026,7 @@
     state.activeNode = name;
     $('walkthroughConsolePanel').hidden = false;
     updateWorkareaLayout();
+    clampWorkareaRows($('walkthroughWorkarea'));
     $('walkthroughConsoleNode').textContent = `Selected node: ${name}`;
     ensureTerminalVisible();
     await startTerminalSession();
@@ -2014,6 +2255,7 @@
       if (ev.target && ev.target.id === 'walkthroughCaptureModal') hideCaptureModal();
     });
     window.addEventListener('resize', () => {
+      clampWorkareaRows($('walkthroughWorkarea'));
       syncConsoleRowToContent();
       fitTerminal();
     });

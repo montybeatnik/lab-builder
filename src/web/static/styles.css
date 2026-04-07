@@ -1026,9 +1026,11 @@ a.monitor-link {
   border-radius: 0;
   font-size: 0.82rem;
   line-height: 1.35;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  word-break: normal;
   padding: 0.65rem 0.7rem;
+  overflow: auto;
+  max-width: 100%;
 }
 
 .walkthrough-step-validation {

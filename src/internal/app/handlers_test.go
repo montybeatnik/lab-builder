@@ -708,6 +708,68 @@ topology:
 	}
 }
 
+func TestLabPlan_IncludesEdgeHostsAsNodes(t *testing.T) {
+	base := t.TempDir()
+	db, err := labstore.OpenLabDB(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := labplanner.LabPlan{
+		Nodes: []labplanner.NodePlan{
+			{Name: "leaf1", Role: "leaf", ASN: 65101, Loopback: "10.0.0.2"},
+		},
+		EdgeHosts: []labplanner.EdgeHost{
+			{Name: "edge1", IP: "172.16.0.2", Prefix: 24},
+			{Name: "edge2", IP: "172.16.0.3", Prefix: 24},
+		},
+	}
+	if err := labstore.SaveLabPlan(db, "demo", plan, labplanner.ProtocolSet{}); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	h := NewHandlers(Config{BaseDir: base}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/labplan?name=demo", nil)
+	rec := httptest.NewRecorder()
+	h.LabPlan(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var resp LabPlanResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected ok response: %#v", resp)
+	}
+
+	find := func(name string) (NodePlanJSON, bool) {
+		for _, n := range resp.Nodes {
+			if n.Name == name {
+				return n, true
+			}
+		}
+		return NodePlanJSON{}, false
+	}
+
+	edge1, ok := find("edge1")
+	if !ok {
+		t.Fatalf("expected edge1 in labplan nodes: %#v", resp.Nodes)
+	}
+	if edge1.Role != "edge" || edge1.EdgeIP != "172.16.0.2" || edge1.EdgePrefix != 24 {
+		t.Fatalf("unexpected edge1 values: %#v", edge1)
+	}
+
+	edge2, ok := find("edge2")
+	if !ok {
+		t.Fatalf("expected edge2 in labplan nodes: %#v", resp.Nodes)
+	}
+	if edge2.Role != "edge" || edge2.EdgeIP != "172.16.0.3" || edge2.EdgePrefix != 24 {
+		t.Fatalf("unexpected edge2 values: %#v", edge2)
+	}
+}
+
 func TestWalkthroughCatalog_MethodNotAllowed(t *testing.T) {
 	h := NewHandlers(Config{BaseDir: t.TempDir()}, nil)
 	req := httptest.NewRequest(http.MethodPost, "/walkthroughs/catalog", nil)
